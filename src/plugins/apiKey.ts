@@ -52,6 +52,12 @@ export default fp(async function apiKeyPlugin(app: FastifyInstance) {
     void reply;
     if (req.url.startsWith("/health")) return;
     if (req.method === "POST" && req.url.split("?")[0] === "/waitlist") return;
+    // Public shareable PnL-card tool (NEXT_STEPS.md Item 4) -- see
+    // src/routes/card.ts. Deliberately public/unauthenticated, unlike
+    // GET /wallet/:address/pnl, which stays behind x-api-key. Rate-limited
+    // much more strictly than authenticated routes (src/routes/card.ts's
+    // CARD_RATE_LIMIT) to bound the abuse risk of having no key at all.
+    if (req.method === "GET" && (req.url.split("?")[0] ?? "").startsWith("/card/")) return;
 
     const key = req.headers["x-api-key"];
     if (!key || Array.isArray(key)) {
