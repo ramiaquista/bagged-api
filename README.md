@@ -11,8 +11,11 @@ cp .env.example .env
 npm run dev        # http://localhost:8080
 ```
 
-Every route except `/health` requires an `x-api-key` header. In local dev,
-the literal value `dev` is always accepted (see `src/plugins/apiKey.ts`).
+Every route except `/health` and `POST /waitlist` requires an `x-api-key`
+header. In local dev (with `ALLOW_DEV_KEY=true` from `.env.example`), the
+literal value `dev` is also accepted (see `src/plugins/apiKey.ts`) — that
+flag must stay unset on Railway/production, where only `API_KEY_SECRET`
+works.
 
 ```bash
 curl -H "x-api-key: dev" "http://localhost:8080/wallet/abc123/pnl?chain=solana"
@@ -32,6 +35,8 @@ at the top of its file — the short version:
   pipeline, but not implemented yet. Nothing calls into this module yet;
   the providers return pre-computed mock `WalletPnl` directly.
 - `src/plugins/apiKey.ts` — one shared secret, not per-customer keys/tiers.
+  The `dev` bypass key only works when `ALLOW_DEV_KEY=true` — never set
+  that in Railway/production (see `.env.example`).
 - `src/routes/webhooks.ts` — registers webhooks in memory; nothing is ever
   delivered.
 - `src/routes/waitlist.ts` — signups are kept in an in-memory `Map`, so a

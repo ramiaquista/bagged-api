@@ -5,11 +5,14 @@ import { ApiError } from "../lib/errors.js";
 
 /**
  * Stand-in auth: any request with an `x-api-key` header matching the
- * configured secret (or the literal "dev" for local convenience) is
- * accepted. `/health` is exempt, and so is `POST /waitlist` — that one is
- * submitted directly from the public marketing site's browser, so it
- * can't require the same secret that gates paid API access. Everything
- * else under `/waitlist` (e.g. `GET /waitlist/count`) stays authenticated.
+ * configured secret is accepted. The literal "dev" is ALSO accepted, but
+ * only when ALLOW_DEV_KEY=true (local dev only — see config.ts; never set
+ * on Railway/production, so this key is dead weight there, not a backdoor
+ * tied to the real secret). `/health` is exempt, and so is `POST
+ * /waitlist` — that one is submitted directly from the public marketing
+ * site's browser, so it can't require the same secret that gates paid API
+ * access. Everything else under `/waitlist` (e.g. `GET /waitlist/count`)
+ * stays authenticated.
  *
  * STATUS: stub. Real implementation needs per-key records (owner, tier,
  * usage counters) in Postgres — see db/schema.sql `api_keys` — and the
@@ -25,7 +28,8 @@ export default fp(async function apiKeyPlugin(app: FastifyInstance) {
     if (!key || Array.isArray(key)) {
       throw ApiError.unauthorized();
     }
-    if (key !== config.API_KEY_SECRET && key !== "dev") {
+    const isDevKey = config.ALLOW_DEV_KEY && key === "dev";
+    if (key !== config.API_KEY_SECRET && !isDevKey) {
       throw ApiError.unauthorized();
     }
   });
