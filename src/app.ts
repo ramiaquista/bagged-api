@@ -3,7 +3,9 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 import { config } from "./config.js";
+import { buildCorsOriginOption } from "./lib/cors.js";
 import { ApiError } from "./lib/errors.js";
+import { captureException, initSentry } from "./lib/sentry.js";
 import apiKeyPlugin from "./plugins/apiKey.js";
 import rateLimitPlugin from "./plugins/rateLimit.js";
 import healthRoutes from "./routes/health.js";
@@ -16,6 +18,8 @@ import walletsRoutes from "./routes/wallets.js";
 import webhookRoutes from "./routes/webhooks.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
+  initSentry();
+
   const app = Fastify({
     logger: { level: config.LOG_LEVEL },
   });
@@ -33,11 +37,12 @@ export async function buildApp(): Promise<FastifyInstance> {
         .code(400)
         .send({ error: "validation_error", message: "Invalid request", details: err.flatten() });
     }
+    captureException(err);
     app.log.error(err);
     return reply.code(500).send({ error: "internal_error", message: "Something went wrong" });
   });
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, { origin: buildCorsOriginOption(config) });
   await app.register(websocket);
   await app.register(rateLimitPlugin);
   await app.register(apiKeyPlugin);
