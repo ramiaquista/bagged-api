@@ -42,6 +42,19 @@ const EnvSchema = z.object({
   // calls) until a real DSN is provided. Never required for local dev or
   // for the app to boot.
   SENTRY_DSN: z.string().optional(),
+  // --- Webhook delivery worker (NEXT_STEPS.md Item 6, src/worker/) ---
+  // How often the worker re-checks every registered wallet's PnL. Default
+  // is 5 minutes: frequent enough that a threshold-crossing customer
+  // notices within a reasonable window, infrequent enough not to hammer
+  // Helius/Alchemy on every registered wallet, every tick, forever. Tune
+  // down for local testing via .env.
+  WEBHOOK_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5 * 60_000),
+  // Delivery retries per triggered webhook (in addition to the first
+  // attempt), with exponential backoff starting at
+  // WEBHOOK_DELIVERY_BACKOFF_MS and doubling each retry. Deliberately small
+  // -- this is a v1 background worker, not a durable job queue.
+  WEBHOOK_DELIVERY_MAX_RETRIES: z.coerce.number().int().nonnegative().default(2),
+  WEBHOOK_DELIVERY_BACKOFF_MS: z.coerce.number().int().positive().default(500),
 });
 
 export type Config = z.infer<typeof EnvSchema>;

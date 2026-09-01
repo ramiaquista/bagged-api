@@ -134,8 +134,11 @@ create table api_key_usage (
 );
 create index api_key_usage_key_idx on api_key_usage (api_key_id, window_start desc);
 
--- Registered PnL-threshold webhooks — see src/routes/webhooks.ts, currently
--- an in-memory Map instead of this table, and nothing delivers to `url` yet.
+-- Registered PnL-threshold webhooks -- see src/routes/webhooks.ts (register/
+-- list/delete, backed by src/db/webhooks.ts) and src/worker/webhookWorker.ts
+-- (the background delivery worker, NEXT_STEPS.md Item 6), which diffs each
+-- wallet's current PnL against its latest `pnl_snapshots` row and POSTs to
+-- `url` when `threshold_pct` is crossed.
 create table webhooks (
   id uuid primary key default gen_random_uuid(),
   wallet_id uuid not null references wallets (id) on delete cascade,
