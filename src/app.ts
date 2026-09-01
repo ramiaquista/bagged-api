@@ -46,8 +46,15 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(cors, { origin: buildCorsOriginOption(config) });
   await app.register(websocket);
   await app.register(dbPlugin);
-  await app.register(rateLimitPlugin);
+  // apiKey before rateLimit: rateLimit's tier-aware max/timeWindow (see
+  // src/plugins/rateLimit.ts) reads req.apiKey, which apiKey.ts's onRequest
+  // hook sets. Both plugins use fastify-plugin (fp()), so they attach
+  // top-level hooks in registration order -- this order alone would be
+  // enough, but rateLimit.ts also pins itself to the `preHandler` hook
+  // stage (always after `onRequest`) as a second, order-independent
+  // guarantee of the same thing.
   await app.register(apiKeyPlugin);
+  await app.register(rateLimitPlugin);
 
   await app.register(healthRoutes);
   await app.register(walletRoutes);
