@@ -19,14 +19,64 @@ server and `npm test` both need a reachable database matching
 above if unset).
 
 Every route except `/health` and `POST /waitlist` requires an `x-api-key`
-header. In local dev (with `ALLOW_DEV_KEY=true` from `.env.example`), the
-literal value `dev` is also accepted (see `src/plugins/apiKey.ts`) — that
-flag must stay unset on Railway/production, where only `API_KEY_SECRET`
-works.
+header. Three ways to authenticate:
+
+- A **real per-customer key** (see "API keys" below) — issued via
+  `npm run keys:create`, backed by the `api_keys` table.
+- The **legacy shared secret**, `API_KEY_SECRET` — kept working
+  deliberately for backward compatibility (see "API keys" below).
+- In local dev only (with `ALLOW_DEV_KEY=true` from `.env.example`), the
+  literal value `dev` (see `src/plugins/apiKey.ts`) — that flag must stay
+  unset on Railway/production.
 
 ```bash
 curl -H "x-api-key: dev" "http://localhost:8080/wallet/abc123/pnl?chain=solana"
 ```
+
+## API keys
+
+`src/plugins/apiKey.ts` now authenticates against real per-customer keys
+(Item 5 in `NEXT_STEPS.md`), backed by the `api_keys` table in
+`db/schema.sql` and the data-access layer in `src/db/apiKeys.ts`, instead of
+just the single shared secret.
+
+- **Tiers**: `free`, `builder`, `growth` — the three self-serve pricing
+  tiers (see `src/lib/tiers.ts`). `enterprise` is also a legal `tier` value
+  in the database (it predates this item) for manually negotiated deals
+  outside the self-serve tiers, but has no fixed limit in
+  `TIER_LIMITS`. **Judgment call:** the per-tier `monthlyRequestLimit`
+  numbers in `src/lib/tiers.ts` are placeholders — the original product
+  spec with the real negotiated numbers wasn't available in this worktree;
+  see the comment on `TierLimits` for details. Only the *shape* is load
+  bearing here; NEXT_STEPS.md Item 7 is what will actually enforce a limit.
+- **Issuance/rotation**: no self-serve dashboard (explicitly out of scope
+  per NEXT_STEPS.md) — an internal CLI instead:
+
+  ```bash
+  npm run keys:create -- --email owner@example.com --tier builder
+  npm run keys:rotate -- --id <api_key_id>
+  npm run keys:revoke -- --id <api_key_id>
+  npm run keys:list   -- [--email owner@example.com]
+  ```
+
+  `create`/`rotate` print the plaintext key exactly once — only its sha256
+  hash is ever stored (`api_keys.key_hash`), so it can't be recovered
+  later.
+- **Usage counters**: every request authenticated by a real per-customer key
+  increments a per-key, per-minute counter in `api_key_usage`
+  (`recordApiKeyUsage()` in `src/db/apiKeys.ts`), and stamps
+  `api_keys.last_used_at`. This is bookkeeping only — no rate limit is
+  enforced yet (`src/plugins/rateLimit.ts` is still a single global limit);
+  the counters exist to give NEXT_STEPS.md Item 7 something real to read.
+- **Backward compatibility (deliberate)**: the legacy shared
+  `API_KEY_SECRET`, and the local-only `dev` bypass key, both still
+  authenticate exactly as before — checked first, before touching
+  Postgres at all — so existing Railway traffic and the existing test
+  suite don't need a coordinated migration. Both resolve to an `internal`
+  pseudo-tier (not a real stored tier — see `src/lib/tiers.ts`) and don't
+  write usage counters (there's no `api_keys.id` to attribute usage to).
+  Migrating Railway's real traffic onto issued keys and retiring this path
+  is a deliberate follow-up, not part of this item.
 
 ## What's real vs. stubbed right now
 
@@ -41,9 +91,11 @@ at the top of its file — the short version:
   rug-resolution functions are typed and wired for a real trade-history
   pipeline, but not implemented yet. Nothing calls into this module yet;
   the providers return pre-computed mock `WalletPnl` directly.
-- `src/plugins/apiKey.ts` — one shared secret, not per-customer keys/tiers.
-  The `dev` bypass key only works when `ALLOW_DEV_KEY=true` — never set
-  that in Railway/production (see `.env.example`).
+- `src/plugins/apiKey.ts` — **real**, backed by Postgres (see "API keys"
+  above): per-customer keys, tiers, and usage counters via the `api_keys`
+  table. The legacy shared `API_KEY_SECRET` and the `dev` bypass key
+  (`ALLOW_DEV_KEY=true` only — never set that in Railway/production, see
+  `.env.example`) still work too, deliberately, for backward compatibility.
 - `src/routes/webhooks.ts` — registers webhooks in memory; nothing is ever
   delivered.
 - `src/routes/waitlist.ts` — **real**, backed by Postgres (see
@@ -51,16 +103,16 @@ at the top of its file — the short version:
   `x-api-key`) since bagged-website's signup form calls it straight from the
   browser — see `src/plugins/apiKey.ts`. `GET /waitlist/count` and `GET
   /waitlist` (the full entry list) both require `x-api-key`.
-- `db/schema.sql` — the Postgres schema. `waitlist` is wired up (see
-  below); `wallets`, `trades`, `positions`, `pnl_snapshots`, `api_keys`, and
-  `webhooks` are still just schema, waiting on the items in the project's
-  `NEXT_STEPS.md` that use them.
+- `db/schema.sql` — the Postgres schema. `waitlist` and `api_keys` (plus
+  `api_key_usage`) are wired up (see below); `wallets`, `trades`,
+  `positions`, `pnl_snapshots`, and `webhooks` are still just schema,
+  waiting on the items in the project's `NEXT_STEPS.md` that use them.
 
 ## Persistence
 
-`src/routes/waitlist.ts` is the first route wired to real Postgres, as a
-template for the tables that come next (`api_keys` for Item 5, `webhooks`
-for Item 6 in `NEXT_STEPS.md`).
+`src/routes/waitlist.ts` was the first route wired to real Postgres, and
+served as the template for `api_keys` (Item 5, see "API keys" above);
+`webhooks` (Item 6 in `NEXT_STEPS.md`) is still pending.
 
 - Client: [`pg`](https://node-postgres.com/) (`node-postgres`) — chosen over
   the `postgres` package for being the most widely used/battle-tested
@@ -109,6 +161,10 @@ npm start             # run the built output
 npm test               # vitest run
 npm run typecheck       # tsc --noEmit
 npm run lint              # eslint
+npm run keys:create        # issue an API key -- see "API keys" above
+npm run keys:rotate         # rotate an API key
+npm run keys:revoke          # revoke an API key
+npm run keys:list             # list API keys
 ```
 
 ## Structure
@@ -118,16 +174,18 @@ src/
   app.ts            # builds the Fastify instance (testable — see test/*.test.ts)
   index.ts           # boots app.ts and starts listening
   config.ts           # env var loading/validation (zod)
-  plugins/              # apiKey (auth stub), db (pg pool), rateLimit
+  plugins/              # apiKey (real per-key auth), db (pg pool), rateLimit
   routes/                # one file per route group
   schemas/                 # zod schemas shared by routes + tests
   providers/                 # ChainProvider interface + Solana/EVM stubs + registry
   pnl-engine/                  # cost-basis / wash-trade / rug-resolution skeleton
-  db/                              # pg Pool + per-table data-access helpers
-  lib/                            # errors, etc.
+  db/                              # pg Pool + per-table data-access helpers (waitlist, apiKeys)
+  lib/                            # errors, tiers, etc.
 db/
-  schema.sql                        # Postgres schema (waitlist is wired up; rest still pending)
-test/                                # vitest, uses Fastify's inject() — no real server needed
+  schema.sql                        # Postgres schema (waitlist + api_keys wired up; rest still pending)
+scripts/
+  manage-api-key.ts                   # internal CLI: create/rotate/revoke/list API keys
+test/                                  # vitest, uses Fastify's inject() — no real server needed
 ```
 
 ## Next steps toward real chain data
@@ -142,7 +200,9 @@ test/                                # vitest, uses Fastify's inject() — no re
 4. Wire `src/pnl-engine` into the providers: raw fills -> `filterWashTrades`
    -> `computeCostBasis` -> `resolveRugs` -> `WalletPnl`, replacing the
    mock-data shortcut.
-5. Move `src/plugins/apiKey.ts` onto the `api_keys` table with real
-   per-tier rate limiting.
+5. ~~Move `src/plugins/apiKey.ts` onto the `api_keys` table with real
+   per-tier keys.~~ Done — see "API keys" above. Real per-tier *rate
+   limiting* (enforcing `TIER_LIMITS`) is still pending, on top of the
+   usage counters this item added.
 6. Build the webhook delivery worker (diff PnL snapshots, POST to
    registered URLs, retry).

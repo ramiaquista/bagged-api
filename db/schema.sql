@@ -91,16 +91,48 @@ create table pnl_snapshots (
 );
 create index pnl_snapshots_wallet_time_idx on pnl_snapshots (wallet_id, snapshot_at desc);
 
--- API keys — see src/plugins/apiKey.ts, currently a single shared secret
--- instead of rows here.
+-- API keys — see src/plugins/apiKey.ts and src/db/apiKeys.ts (Item 5, real
+-- per-customer keys). Only a salted hash of the plaintext key is ever
+-- stored (sha256 -- see hashApiKey() in src/db/apiKeys.ts); the plaintext is
+-- shown once at issuance/rotation time (src/scripts/manage-api-key.ts) and
+-- never persisted. `tier` covers the three self-serve pricing tiers
+-- (free/builder/growth -- see src/lib/tiers.ts) plus 'enterprise' for
+-- manually negotiated deals outside the self-serve tiers; this table
+-- predates this item (it was already here, unused) so the check constraint
+-- is left as found rather than narrowed to just the three self-serve tiers.
+-- `last_used_at` is updated on every authenticated request that resolves to
+-- a row here (not the legacy shared-secret/dev-key paths, which have no row
+-- to update) -- convenient for `manage-api-key.ts list` without joining
+-- against api_key_usage.
 create table api_keys (
   id uuid primary key default gen_random_uuid(),
   key_hash text not null unique,
   owner_email text not null,
   tier text not null check (tier in ('free', 'builder', 'growth', 'enterprise')),
   created_at timestamptz not null default now(),
-  revoked_at timestamptz
+  revoked_at timestamptz,
+  last_used_at timestamptz
 );
+
+-- Per-key request counters, bucketed into fixed-size time windows so a
+-- future usage-based rate limiter (NEXT_STEPS.md Item 7) can enforce
+-- per-tier limits by reading counts here instead of re-deriving them from
+-- raw request logs. Incremented once per authenticated request that
+-- resolves to a real api_keys row (src/plugins/apiKey.ts) via an atomic
+-- upsert (see recordApiKeyUsage() in src/db/apiKeys.ts).
+--
+-- JUDGMENT CALL: one-minute buckets, matching the granularity of the
+-- existing global limiter in src/plugins/rateLimit.ts. Item 7 can either
+-- rate-limit directly off these buckets or roll them up into a monthly
+-- total against src/lib/tiers.ts's TIER_LIMITS -- this table doesn't commit
+-- to either, just to "counts exist, per key, per time bucket."
+create table api_key_usage (
+  api_key_id uuid not null references api_keys (id) on delete cascade,
+  window_start timestamptz not null,
+  request_count bigint not null default 0,
+  primary key (api_key_id, window_start)
+);
+create index api_key_usage_key_idx on api_key_usage (api_key_id, window_start desc);
 
 -- Registered PnL-threshold webhooks — see src/routes/webhooks.ts, currently
 -- an in-memory Map instead of this table, and nothing delivers to `url` yet.
