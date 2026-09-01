@@ -103,23 +103,27 @@ at the top of its file — the short version:
   table. The legacy shared `API_KEY_SECRET` and the `dev` bypass key
   (`ALLOW_DEV_KEY=true` only — never set that in Railway/production, see
   `.env.example`) still work too, deliberately, for backward compatibility.
-- `src/routes/webhooks.ts` — registers webhooks in memory; nothing is ever
-  delivered.
+- `src/routes/webhooks.ts` — **real**, backed by Postgres (see "Webhook
+  delivery worker" below): registering, listing, and deleting a webhook
+  persists to the `webhooks`/`wallets` tables via `src/db/webhooks.ts`.
+  Delivery itself is a separate background worker
+  (`src/worker/webhookWorker.ts`), not this route.
 - `src/routes/waitlist.ts` — **real**, backed by Postgres (see
   "Persistence" below). It's the one route that's intentionally public (no
   `x-api-key`) since bagged-website's signup form calls it straight from the
   browser — see `src/plugins/apiKey.ts`. `GET /waitlist/count` and `GET
   /waitlist` (the full entry list) both require `x-api-key`.
-- `db/schema.sql` — the Postgres schema. `waitlist` and `api_keys` (plus
-  `api_key_usage`) are wired up (see below); `wallets`, `trades`,
-  `positions`, `pnl_snapshots`, and `webhooks` are still just schema,
-  waiting on the items in the project's `NEXT_STEPS.md` that use them.
+- `db/schema.sql` — the Postgres schema. `waitlist`, `api_keys` (plus
+  `api_key_usage`), `wallets`, `webhooks`, and `pnl_snapshots` are all wired
+  up now (see "Persistence" and "Webhook delivery worker" below);
+  `trades`/`positions` are still just schema, unused until a route persists
+  computed positions rather than recomputing them per-request.
 
 ## Persistence
 
 `src/routes/waitlist.ts` was the first route wired to real Postgres, and
-served as the template for `api_keys` (Item 5, see "API keys" above);
-`webhooks` (Item 6 in `NEXT_STEPS.md`) is still pending.
+served as the template for `api_keys` (Item 5, see "API keys" above) and
+`webhooks`/`pnl_snapshots` (Item 6, see "Webhook delivery worker" below).
 
 - Client: [`pg`](https://node-postgres.com/) (`node-postgres`) — chosen over
   the `postgres` package for being the most widely used/battle-tested
@@ -138,6 +142,77 @@ served as the template for `api_keys` (Item 5, see "API keys" above);
   `webhooks`) even though the README and route already described it as the
   intended target — added it as part of this work; see the comment above
   `create table waitlist` in `db/schema.sql` for details.
+
+## Webhook delivery worker
+
+`POST /webhooks` (`src/routes/webhooks.ts`) used to be pure bookkeeping —
+an in-memory `Map`, nothing ever delivered. Both halves are now real
+(NEXT_STEPS.md Item 6):
+
+- **Registration** — `src/db/webhooks.ts` persists to the `webhooks` table,
+  resolving/creating the target `wallets` row (`src/db/wallets.ts`) from
+  the request's `{ wallet, chain }` pair. Same DAL pattern as
+  `src/db/waitlist.ts`/`src/db/apiKeys.ts`. The route contract is
+  unchanged: `POST /webhooks` body `{ url, wallet, chain, threshold_pct }`,
+  `GET /webhooks`, `DELETE /webhooks/:id`.
+- **Delivery** — `src/worker/webhookWorker.ts` is a background worker,
+  independent of request handling, that on a timer
+  (`WEBHOOK_POLL_INTERVAL_MS`, default 5 minutes):
+  1. Loads every webhook, grouped by wallet (a wallet can have more than
+     one webhook registered against it).
+  2. For each wallet, calls the real chain provider
+     (`src/providers/registry.ts` — Helius-backed Solana, Alchemy-backed
+     EVM) for its current `WalletPnl`, and reads that wallet's most recent
+     prior row in `pnl_snapshots` (`src/db/pnlSnapshots.ts`) *before*
+     writing the new one, so a check never diffs a snapshot against itself.
+  3. Writes the new snapshot regardless of whether anything fires — this
+     is also what gives the next check cycle (and, down the line, a
+     real-data `GET /leaderboard`) a baseline to diff against.
+  4. Computes the PnL % change since the prior snapshot
+     (`src/worker/pnlDiff.ts`, pure/dependency-free —
+     `(current - previous) / abs(previous) * 100`, with an explicit rule
+     for "no prior snapshot yet" — never fires — and "prior total was
+     exactly 0" — any nonzero movement fires) and, for each webhook on that
+     wallet whose `threshold_pct` is crossed, POSTs a JSON payload
+     (`webhook_id`, `wallet`, `chain`, `threshold_pct`, `change_pct`,
+     `previous_total_pnl_usd`, `current_total_pnl_usd`, `triggered_at`) to
+     its `url` (`src/worker/deliver.ts`).
+  5. Delivery retries up to `WEBHOOK_DELIVERY_MAX_RETRIES` (default 2, i.e.
+     3 attempts total) with exponential backoff from
+     `WEBHOOK_DELIVERY_BACKOFF_MS` (default 500ms → 500ms → 1000ms).
+     Every attempt (success, non-2xx, network error, or timeout) is logged
+     through the existing `pino`-backed Fastify logger — no new logging
+     library. A delivery that still fails after all retries is logged and
+     dropped: this is a v1 background worker, not a durable job queue with
+     persisted retry state.
+  6. A wallet whose check fails outright (provider error, DB error) is
+     logged and skipped without aborting the rest of that cycle; ticks are
+     serialized so a slow cycle can't overlap the next timer fire.
+- **Lifecycle** — started in `src/index.ts` (real server boot) right after
+  the app is built, and stopped alongside `app.close()` on `SIGTERM`/
+  `SIGINT`. Deliberately *not* registered inside `buildApp()`
+  (`src/app.ts`): that function is what every test in `test/*.test.ts`
+  calls via `app.inject()` (no real listening socket, no real lifetime), so
+  wiring the worker in there would give ~40 unrelated route tests a
+  background timer capable of making real provider/network calls with no
+  clean way to await it. Keeping it in `index.ts` keeps those tests
+  unaffected and gives the worker itself focused tests
+  (`test/webhookWorker.test.ts`) that call `runOnce()` directly instead of
+  racing a real timer.
+- **Config** (`src/config.ts`, all optional, see `.env.example`):
+  `WEBHOOK_POLL_INTERVAL_MS`, `WEBHOOK_DELIVERY_MAX_RETRIES`,
+  `WEBHOOK_DELIVERY_BACKOFF_MS`.
+- **Uncertain / hard to validate without live registered wallets:** the
+  diff logic and delivery/retry behavior are covered by tests against real
+  Postgres with an injected fake chain provider and injected `fetch`
+  (`test/webhookWorker.test.ts`), and the threshold math has its own
+  dependency-free unit tests (`test/pnlDiff.test.ts`). What isn't (and
+  can't be, from this worktree) validated: whether a `threshold_pct`
+  crossing on a *real* wallet's *real* PnL swing, over a *real* multi-cycle
+  time window, reads as the "right" moment to notify a subscriber — that
+  needs live registered wallets running against this worker for a while,
+  which is an operational validation step, not something a one-shot
+  implementation pass can confirm.
 
 ## Security
 
@@ -283,10 +358,11 @@ src/
     launchpads/                   # per-chain bonding-curve resolvers (four.meme, hood.fun, ...)
     evmTradeBuilder.ts               # pairs raw Alchemy transfers into priced Trade[]
   pnl-engine/                  # cost-basis / wash-trade / rug-resolution skeleton
-  db/                              # pg Pool + per-table data-access helpers (waitlist, apiKeys)
+  db/                              # pg Pool + per-table data-access helpers (waitlist, apiKeys, webhooks, wallets, pnlSnapshots)
+  worker/                         # webhook delivery worker (webhookWorker, pnlDiff, deliver)
   lib/                            # errors, tiers, etc.
 db/
-  schema.sql                        # Postgres schema (waitlist + api_keys wired up; rest still pending)
+  schema.sql                        # Postgres schema (waitlist, api_keys, webhooks, wallets, pnl_snapshots wired up; trades/positions still pending)
 scripts/
   manage-api-key.ts                   # internal CLI: create/rotate/revoke/list API keys
 test/                                  # vitest, uses Fastify's inject() — no real server needed
@@ -310,5 +386,5 @@ test/                                  # vitest, uses Fastify's inject() — no 
    per-tier keys.~~ Done — see "API keys" above. Real per-tier *rate
    limiting* (enforcing `TIER_LIMITS`) is still pending, on top of the
    usage counters this item added.
-6. Build the webhook delivery worker (diff PnL snapshots, POST to
-   registered URLs, retry).
+6. ~~Build the webhook delivery worker (diff PnL snapshots, POST to
+   registered URLs, retry).~~ Done — see "Webhook delivery worker" above.
