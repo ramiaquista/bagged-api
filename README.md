@@ -80,6 +80,21 @@ for Item 6 in `NEXT_STEPS.md`).
   intended target — added it as part of this work; see the comment above
   `create table waitlist` in `db/schema.sql` for details.
 
+## Security
+
+- **CORS** (`src/lib/cors.ts`) allows `https://bagged.life`,
+  `https://www.bagged.life`, and Vercel preview deploys matching
+  `https://bagged-website-*.vercel.app` (assumption — no `vercel.json` or
+  team name was available to confirm the exact preview slug; update the
+  pattern in `src/lib/cors.ts` if it doesn't match the real Vercel project).
+  Set `CORS_ALLOWED_ORIGINS` (comma-separated exact origins) to allow more
+  without a code change — e.g. a staging domain.
+- **`ALLOW_DEV_KEY`** must stay unset (or `false`) everywhere except local
+  dev — see "Getting started" above and `src/plugins/apiKey.ts`.
+- **Error tracking** (`src/lib/sentry.ts`) is optional Sentry scaffolding.
+  Set `SENTRY_DSN` to activate it; unset, it's a complete no-op (no init,
+  no network calls, doesn't affect startup). No DSN is provisioned yet.
+
 ## API surface
 
 | Method | Path | |

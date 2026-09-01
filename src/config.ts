@@ -21,6 +21,17 @@ const EnvSchema = z.object({
   HELIUS_API_KEY: z.string().optional(),
   ALCHEMY_API_KEY: z.string().optional(),
   JUPITER_API_BASE_URL: z.string().url().default("https://price.jup.ag/v6"),
+  // Extra CORS origins to allow, beyond the always-allowed bagged.life /
+  // www.bagged.life / Vercel-preview-domain set hardcoded in src/app.ts.
+  // Comma-separated exact origins, e.g.
+  // "https://staging.bagged.life,http://localhost:3000". Optional -- no
+  // code change needed for the common case, only for extending it.
+  CORS_ALLOWED_ORIGINS: z.string().optional(),
+  // Optional Sentry DSN for error tracking/alerting (see src/lib/sentry.ts).
+  // Unset by default -- Sentry stays fully inert (no init, no network
+  // calls) until a real DSN is provided. Never required for local dev or
+  // for the app to boot.
+  SENTRY_DSN: z.string().optional(),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
