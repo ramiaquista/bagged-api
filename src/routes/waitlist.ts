@@ -1,21 +1,16 @@
 import type { FastifyInstance } from "fastify";
-import { WaitlistSignupSchema, type WaitlistEntry } from "../schemas/waitlist.js";
+import { countWaitlistEntries, insertWaitlistSignup, listWaitlistEntries } from "../db/waitlist.js";
+import { WaitlistSignupSchema } from "../schemas/waitlist.js";
 
 /**
- * In-memory store — resets on every restart, and this process itself
- * won't survive a redeploy, so nothing here is durable yet.
- *
- * STATUS: stub. Real implementation needs a `waitlist` table (or reuse of
- * `api_keys`/a CRM) so signups survive restarts and can be exported —
- * see db/schema.sql and the README "Persistence" note.
+ * Backed by the `waitlist` table (see db/schema.sql) via `app.db`
+ * (src/plugins/db.ts) and the data-access helpers in src/db/waitlist.ts.
  *
  * Deliberately exempt from the x-api-key check (see plugins/apiKey.ts):
  * this is the public marketing site's signup form, submitted directly
  * from the visitor's browser, so it can't require the same secret that
  * gates paid API access.
  */
-const entries = new Map<string, WaitlistEntry>();
-
 export default async function waitlistRoutes(app: FastifyInstance) {
   app.post(
     "/waitlist",
@@ -25,12 +20,12 @@ export default async function waitlistRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const body = WaitlistSignupSchema.parse(req.body);
 
-      if (entries.has(body.email)) {
+      const { inserted } = await insertWaitlistSignup(app.db, body);
+      if (!inserted) {
         reply.code(200);
         return { status: "already_registered" };
       }
 
-      entries.set(body.email, { ...body, created_at: new Date().toISOString() });
       reply.code(201);
       return { status: "ok" };
     },
@@ -39,5 +34,10 @@ export default async function waitlistRoutes(app: FastifyInstance) {
   // Not part of the public product spec's API surface — an internal
   // convenience for checking signups before there's a real dashboard.
   // Keep it behind the standard x-api-key check (not registered above).
-  app.get("/waitlist/count", async () => ({ count: entries.size }));
+  app.get("/waitlist/count", async () => ({ count: await countWaitlistEntries(app.db) }));
+
+  // Same auth as /waitlist/count: protected, internal-only for now. Returns
+  // the actual signups (not just a count) so there's a way to see *who*
+  // signed up ahead of a real dashboard.
+  app.get("/waitlist", async () => ({ entries: await listWaitlistEntries(app.db) }));
 }

@@ -12,6 +12,22 @@ create extension if not exists "pgcrypto";
 
 create type chain as enum ('solana', 'bnb', 'robinhood', 'ethereum');
 
+-- Waitlist signups from the public marketing site form (POST /waitlist,
+-- intentionally unauthenticated -- see src/plugins/apiKey.ts). Not present
+-- in the original draft of this file even though src/routes/waitlist.ts and
+-- the README already described it as the intended persistence target --
+-- added here as part of wiring up real storage.
+--
+-- `email` is stored already-lowercased (src/schemas/waitlist.ts normalizes
+-- it before it ever reaches the database), so a plain unique constraint is
+-- enough to enforce case-insensitive dedup without a functional index.
+create table waitlist (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  note text,
+  created_at timestamptz not null default now()
+);
+
 -- One row per wallet Bagged has ever indexed.
 create table wallets (
   id uuid primary key default gen_random_uuid(),

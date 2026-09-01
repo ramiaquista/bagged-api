@@ -1,5 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
+import { createPool } from "../src/db/pool.js";
+
+// Real integration tests against Postgres (see db/schema.sql's `waitlist`
+// table and src/db/waitlist.ts) rather than mocks, matching how the rest of
+// this suite tests through app.inject() against a real Fastify instance.
+// Requires a reachable Postgres matching DATABASE_URL -- `docker compose up
+// -d` locally (see docker-compose.yml / README).
+const pool = createPool();
+
+beforeEach(async () => {
+  await pool.query("truncate table waitlist");
+});
+
+afterAll(async () => {
+  await pool.end();
+});
 
 describe("waitlist", () => {
   it("accepts a signup without an x-api-key header", async () => {
@@ -80,5 +96,70 @@ describe("waitlist", () => {
     expect(withKey.json()).toEqual({ count: expect.any(Number) });
 
     await app.close();
+  });
+
+  it("requires x-api-key for GET /waitlist and returns real entries", async () => {
+    const app = await buildApp();
+
+    await app.inject({
+      method: "POST",
+      url: "/waitlist",
+      payload: { email: "alice@example.com", note: "building a bot" },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/waitlist",
+      payload: { email: "bob@example.com" },
+    });
+
+    const unauthed = await app.inject({ method: "GET", url: "/waitlist" });
+    expect(unauthed.statusCode).toBe(401);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/waitlist",
+      headers: { "x-api-key": "dev" },
+    });
+    expect(res.statusCode).toBe(200);
+    const { entries } = res.json();
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ email: "alice@example.com", note: "building a bot" }),
+        expect.objectContaining({ email: "bob@example.com" }),
+      ]),
+    );
+    expect(entries).toHaveLength(2);
+    for (const entry of entries) {
+      expect(() => new Date(entry.created_at).toISOString()).not.toThrow();
+    }
+
+    await app.close();
+  });
+
+  it("persists signups across a restart (new app instance, new pool)", async () => {
+    const firstApp = await buildApp();
+    const create = await firstApp.inject({
+      method: "POST",
+      url: "/waitlist",
+      payload: { email: "durable@example.com" },
+    });
+    expect(create.statusCode).toBe(201);
+    // Simulates a process restart: closing the app tears down its
+    // connection pool entirely (see src/plugins/db.ts's onClose hook), so
+    // reading the signup back via a brand-new app/pool proves it's really
+    // in Postgres, not just an in-memory Map that happened to survive.
+    await firstApp.close();
+
+    const secondApp = await buildApp();
+    const res = await secondApp.inject({
+      method: "GET",
+      url: "/waitlist",
+      headers: { "x-api-key": "dev" },
+    });
+    expect(res.json().entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ email: "durable@example.com" })]),
+    );
+
+    await secondApp.close();
   });
 });
