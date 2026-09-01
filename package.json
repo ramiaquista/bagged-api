@@ -11,7 +11,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "keys:create": "tsx scripts/manage-api-key.ts create",
+    "keys:rotate": "tsx scripts/manage-api-key.ts rotate",
+    "keys:revoke": "tsx scripts/manage-api-key.ts revoke",
+    "keys:list": "tsx scripts/manage-api-key.ts list"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
