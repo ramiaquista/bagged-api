@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 import { config } from "./config.js";
 import { ApiError } from "./lib/errors.js";
 import apiKeyPlugin from "./plugins/apiKey.js";
+import dbPlugin from "./plugins/db.js";
 import rateLimitPlugin from "./plugins/rateLimit.js";
 import healthRoutes from "./routes/health.js";
 import leaderboardRoutes from "./routes/leaderboard.js";
@@ -39,6 +40,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(cors, { origin: true });
   await app.register(websocket);
+  await app.register(dbPlugin);
   await app.register(rateLimitPlugin);
   await app.register(apiKeyPlugin);
 

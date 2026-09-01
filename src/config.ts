@@ -13,7 +13,11 @@ const EnvSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
-  DATABASE_URL: z.string().optional(),
+  // Defaults to the local docker-compose Postgres (same pattern as
+  // API_KEY_SECRET above) so `npm run dev` / `npm test` work without extra
+  // setup beyond `docker compose up -d`. Railway/production must set this
+  // explicitly to the provisioned database's connection string.
+  DATABASE_URL: z.string().min(1).default("postgres://bagged:bagged@localhost:5432/bagged"),
   HELIUS_API_KEY: z.string().optional(),
   ALCHEMY_API_KEY: z.string().optional(),
   JUPITER_API_BASE_URL: z.string().url().default("https://price.jup.ag/v6"),
