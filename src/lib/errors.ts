@@ -20,4 +20,8 @@ export class ApiError extends Error {
   static unauthorized(message = "Missing or invalid API key") {
     return new ApiError(401, "unauthorized", message);
   }
+
+  static rateLimited(message = "Rate limit exceeded") {
+    return new ApiError(429, "rate_limited", message);
+  }
 }

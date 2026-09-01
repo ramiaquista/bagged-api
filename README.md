@@ -47,8 +47,10 @@ just the single shared secret.
   `TIER_LIMITS`. **Judgment call:** the per-tier `monthlyRequestLimit`
   numbers in `src/lib/tiers.ts` are placeholders — the original product
   spec with the real negotiated numbers wasn't available in this worktree;
-  see the comment on `TierLimits` for details. Only the *shape* is load
-  bearing here; NEXT_STEPS.md Item 7 is what will actually enforce a limit.
+  see the comment on `TierLimits` for details. NEXT_STEPS.md Item 7 (see
+  "Rate limiting" below) now enforces against these placeholders — replace
+  them with the real spec numbers once available and the enforced limits
+  follow automatically.
 - **Issuance/rotation**: no self-serve dashboard (explicitly out of scope
   per NEXT_STEPS.md) — an internal CLI instead:
 
@@ -65,9 +67,34 @@ just the single shared secret.
 - **Usage counters**: every request authenticated by a real per-customer key
   increments a per-key, per-minute counter in `api_key_usage`
   (`recordApiKeyUsage()` in `src/db/apiKeys.ts`), and stamps
-  `api_keys.last_used_at`. This is bookkeeping only — no rate limit is
-  enforced yet (`src/plugins/rateLimit.ts` is still a single global limit);
-  the counters exist to give NEXT_STEPS.md Item 7 something real to read.
+  `api_keys.last_used_at`. This remains the durable, cross-restart source of
+  truth for a key's usage (billing/support tooling, `manage-api-key.ts
+  list`), separate from the in-memory rate limiter below.
+- **Rate limiting (Item 7, `src/plugins/rateLimit.ts`)**: real per-customer
+  keys on a self-serve tier (free/builder/growth) are now rate-limited
+  against an hourly cap derived from that tier's `monthlyRequestLimit` in
+  `src/lib/tiers.ts` (`hourlyRequestLimit()`: `ceil(monthlyRequestLimit /
+  720)` — 720 = hours in a 30-day month). An hourly window, not per-minute,
+  is deliberate: real usage is bursty, and a per-minute slice of the
+  monthly average (e.g. Free ≈ 1 req/min) would throttle legitimate
+  clients well before they used their real monthly budget; an hourly
+  window still bounds abuse while giving bursty traffic headroom. This
+  does not enforce the monthly figure itself as a hard cutoff — see the
+  comment above `hourlyRequestLimit` in `src/lib/tiers.ts` for the full
+  reasoning and the exact per-tier numbers.
+  Enforcement uses `@fastify/rate-limit`'s own in-memory store (fast,
+  per-request, no extra DB round trip) keyed per API key; the Postgres
+  counters above remain the persisted source of truth. That's a deliberate
+  split, not a second parallel usage-tracking system — see the doc comment
+  on `rateLimit.ts`'s default export for the full design rationale,
+  including the tradeoff (resets on redeploy, doesn't sync across multiple
+  instances — fine for the current single-instance deployment; swap in
+  `@fastify/rate-limit`'s Redis store first if that changes).
+  The legacy shared secret, the `dev` bypass key, and `enterprise` keys
+  (which deliberately have no fixed number in `TIER_LIMITS`) all keep the
+  pre-existing global default instead (100 req/min, keyed by IP for the
+  legacy paths) — unchanged from before this item, so existing Railway
+  traffic isn't newly throttled.
 - **Backward compatibility (deliberate)**: the legacy shared
   `API_KEY_SECRET`, and the local-only `dev` bypass key, both still
   authenticate exactly as before — checked first, before touching
@@ -275,7 +302,7 @@ src/
   app.ts            # builds the Fastify instance (testable — see test/*.test.ts)
   index.ts           # boots app.ts and starts listening
   config.ts           # env var loading/validation (zod)
-  plugins/              # apiKey (real per-key auth), db (pg pool), rateLimit
+  plugins/              # apiKey (real per-key auth), db (pg pool), rateLimit (real per-tier limits)
   routes/                # one file per route group
   schemas/                 # zod schemas shared by routes + tests
   providers/                 # ChainProvider interface + Solana (mock) / EVM (real) + registry
@@ -307,8 +334,8 @@ test/                                  # vitest, uses Fastify's inject() — no 
    wallets now that the arithmetic is live end-to-end (see "EVM provider"
    above).
 5. ~~Move `src/plugins/apiKey.ts` onto the `api_keys` table with real
-   per-tier keys.~~ Done — see "API keys" above. Real per-tier *rate
-   limiting* (enforcing `TIER_LIMITS`) is still pending, on top of the
-   usage counters this item added.
-6. Build the webhook delivery worker (diff PnL snapshots, POST to
+   per-tier keys.~~ Done — see "API keys" above.
+6. ~~Enforce real per-tier rate limits (`TIER_LIMITS`).~~ Done — see "API
+   keys" above and `src/plugins/rateLimit.ts`.
+7. Build the webhook delivery worker (diff PnL snapshots, POST to
    registered URLs, retry).
