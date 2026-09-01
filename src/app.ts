@@ -11,6 +11,7 @@ import leaderboardRoutes from "./routes/leaderboard.js";
 import portfolioRoutes from "./routes/portfolio.js";
 import streamRoutes from "./routes/stream.js";
 import walletRoutes from "./routes/wallet.js";
+import waitlistRoutes from "./routes/waitlist.js";
 import walletsRoutes from "./routes/wallets.js";
 import webhookRoutes from "./routes/webhooks.js";
 
@@ -48,6 +49,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(leaderboardRoutes);
   await app.register(webhookRoutes);
   await app.register(streamRoutes);
+  await app.register(waitlistRoutes);
 
   return app;
 }

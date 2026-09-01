@@ -34,6 +34,10 @@ at the top of its file — the short version:
 - `src/plugins/apiKey.ts` — one shared secret, not per-customer keys/tiers.
 - `src/routes/webhooks.ts` — registers webhooks in memory; nothing is ever
   delivered.
+- `src/routes/waitlist.ts` — signups are kept in an in-memory `Map`, so a
+  redeploy or restart drops them. It's the one route that's intentionally
+  public (no `x-api-key`) since bagged-website's signup form calls it
+  straight from the browser — see `src/plugins/apiKey.ts`.
 - `db/schema.sql` — the intended Postgres schema; nothing in the running
   API opens a database connection yet. `docker-compose.yml` spins up a local
   Postgres if/when that's the next step.
@@ -52,6 +56,8 @@ at the top of its file — the short version:
 | POST | `/webhooks` | body `{ url, wallet, chain, threshold_pct }` |
 | GET | `/webhooks` | |
 | DELETE | `/webhooks/:id` | |
+| POST | `/waitlist` | body `{ email, note? }` — no auth required |
+| GET | `/waitlist/count` | auth required |
 
 `chain` is one of `solana`, `bnb`, `robinhood`, `ethereum` everywhere.
 
