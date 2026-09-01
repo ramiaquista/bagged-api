@@ -9,6 +9,7 @@ import { captureException, initSentry } from "./lib/sentry.js";
 import apiKeyPlugin from "./plugins/apiKey.js";
 import dbPlugin from "./plugins/db.js";
 import rateLimitPlugin from "./plugins/rateLimit.js";
+import cardRoutes from "./routes/card.js";
 import healthRoutes from "./routes/health.js";
 import leaderboardRoutes from "./routes/leaderboard.js";
 import portfolioRoutes from "./routes/portfolio.js";
@@ -38,6 +39,19 @@ export async function buildApp(): Promise<FastifyInstance> {
         .code(400)
         .send({ error: "validation_error", message: "Invalid request", details: err.flatten() });
     }
+    // Well-formed 4xx errors thrown by Fastify itself or its plugins --
+    // most notably @fastify/rate-limit, which throws a plain `Error` with
+    // `.statusCode = 429` (see rateLimitPlugin/cardRoutes) rather than an
+    // ApiError. Without this branch those were falling through to the
+    // generic 500 below, silently turning "rate limit exceeded" into
+    // "internal error" for callers. Only trusts 4xx here -- a plugin/core
+    // error tagged with a 5xx statusCode still goes through captureException.
+    if (err instanceof Error && "statusCode" in err) {
+      const statusCode = (err as { statusCode?: unknown }).statusCode;
+      if (typeof statusCode === "number" && statusCode >= 400 && statusCode < 500) {
+        return reply.code(statusCode).send({ error: "request_error", message: err.message });
+      }
+    }
     captureException(err);
     app.log.error(err);
     return reply.code(500).send({ error: "internal_error", message: "Something went wrong" });
@@ -50,6 +64,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(apiKeyPlugin);
 
   await app.register(healthRoutes);
+  await app.register(cardRoutes);
   await app.register(walletRoutes);
   await app.register(walletsRoutes);
   await app.register(portfolioRoutes);
