@@ -55,6 +55,19 @@ const EnvSchema = z.object({
   // -- this is a v1 background worker, not a durable job queue.
   WEBHOOK_DELIVERY_MAX_RETRIES: z.coerce.number().int().nonnegative().default(2),
   WEBHOOK_DELIVERY_BACKOFF_MS: z.coerce.number().int().positive().default(500),
+  // --- Waitlist signup notification email (src/lib/waitlistNotify.ts) ---
+  // Optional Resend (https://resend.com) API key. Fully inert -- no
+  // network call, no crash -- until set: notifyWaitlistSignup() no-ops
+  // (logs a warning) with this unset, exactly like HELIUS_API_KEY /
+  // ALCHEMY_API_KEY / SENTRY_DSN above. Key issuance on this route was
+  // deliberately reverted to a manual, by-hand process (see commit
+  // f791ae2) -- this is what makes "we'll follow up by email" (the
+  // website's own CTA copy) actually happen instead of requiring someone
+  // to remember to poll GET /waitlist.
+  RESEND_API_KEY: z.string().optional(),
+  // Where that notification email is sent. Defaults to the address
+  // that's already public across the site (footer, CTA copy, docs).
+  WAITLIST_NOTIFY_EMAIL: z.string().email().default("business@bagged.life"),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
