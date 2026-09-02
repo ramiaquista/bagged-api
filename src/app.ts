@@ -9,6 +9,7 @@ import { captureException, initSentry } from "./lib/sentry.js";
 import apiKeyPlugin from "./plugins/apiKey.js";
 import dbPlugin from "./plugins/db.js";
 import rateLimitPlugin from "./plugins/rateLimit.js";
+import adminRoutes from "./routes/admin.js";
 import cardRoutes from "./routes/card.js";
 import healthRoutes from "./routes/health.js";
 import leaderboardRoutes from "./routes/leaderboard.js";
@@ -79,6 +80,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(webhookRoutes);
   await app.register(streamRoutes);
   await app.register(waitlistRoutes);
+  await app.register(adminRoutes);
 
   return app;
 }

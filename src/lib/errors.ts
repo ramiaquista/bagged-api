@@ -24,4 +24,8 @@ export class ApiError extends Error {
   static rateLimited(message = "Rate limit exceeded") {
     return new ApiError(429, "rate_limited", message);
   }
+
+  static forbidden(message = "Not permitted") {
+    return new ApiError(403, "forbidden", message);
+  }
 }
