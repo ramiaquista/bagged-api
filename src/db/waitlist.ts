@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import type { WaitlistEntry, WaitlistSignupRequest } from "../schemas/waitlist.js";
 
 interface WaitlistRow {
@@ -23,16 +23,9 @@ function toEntry(row: WaitlistRow): WaitlistEntry {
  *
  * Email is expected to already be lowercased by
  * WaitlistSignupSchema (src/schemas/waitlist.ts) before it gets here.
- *
- * Accepts a `Pool` or a checked-out `PoolClient` so `POST /waitlist` (see
- * src/routes/waitlist.ts) can run this insert inside the same transaction
- * as the api-key creation that follows it -- mirroring the
- * `begin`/`commit`/`rollback` pattern `rotateApiKey` already uses in
- * src/db/apiKeys.ts, so there's one transaction pattern in the codebase,
- * not two.
  */
 export async function insertWaitlistSignup(
-  db: Pool | PoolClient,
+  db: Pool,
   signup: WaitlistSignupRequest,
 ): Promise<{ inserted: boolean }> {
   const result = await db.query<WaitlistRow>(

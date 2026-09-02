@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import type { StoredTier } from "../lib/tiers.js";
 
 /** Prefix on every issued plaintext key, purely for eyeballing key type in logs/UIs. */
@@ -54,16 +54,9 @@ function generatePlaintextKey(): string {
  * Issues a brand-new key for a customer. The plaintext is returned exactly
  * once here -- it is never stored or retrievable again, matching how the
  * rest of the industry treats API keys (only the hash lives in Postgres).
- *
- * Accepts a `Pool` or a checked-out `PoolClient` so callers that need this
- * insert to participate in a caller-controlled transaction (e.g.
- * `POST /waitlist` in src/routes/waitlist.ts, which wraps the waitlist
- * insert and this key creation in one `begin`/`commit` -- see the comment
- * there) can pass their transaction's client straight through instead of
- * this function opening its own connection.
  */
 export async function createApiKey(
-  db: Pool | PoolClient,
+  db: Pool,
   ownerEmail: string,
   tier: StoredTier,
 ): Promise<{ record: ApiKeyRecord; plaintext: string }> {
