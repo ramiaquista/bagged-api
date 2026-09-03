@@ -27,7 +27,9 @@ declare module "fastify" {
  * stub. `/health` is exempt, and so is `POST /waitlist` -- that one is
  * submitted directly from the public marketing site's browser, so it can't
  * require a secret. Everything else under `/waitlist` (e.g. `GET
- * /waitlist/count`) stays authenticated.
+ * /waitlist/count`) stays authenticated. `/admin` (all of it) is also
+ * exempt -- it has its own real session-cookie login now (src/routes/admin.ts,
+ * src/lib/adminAuth.ts), not gated by this plugin at all.
  *
  * BACKWARD COMPATIBILITY (deliberate, not an oversight): the legacy shared
  * `API_KEY_SECRET` -- and the local-only `dev` bypass key, gated behind
@@ -58,6 +60,13 @@ export default fp(async function apiKeyPlugin(app: FastifyInstance) {
     // much more strictly than authenticated routes (src/routes/card.ts's
     // CARD_RATE_LIMIT) to bound the abuse risk of having no key at all.
     if (req.method === "GET" && (req.url.split("?")[0] ?? "").startsWith("/card/")) return;
+    // Admin dashboard (bagged-website's /admin) has its own real
+    // username+password session-cookie auth now -- see
+    // src/routes/admin.ts's requireAdminSession and src/lib/adminAuth.ts.
+    // The legacy shared secret / dev key deliberately no longer grants
+    // admin access; previously it did, via req.apiKey.legacy, which was
+    // this route's entire gate.
+    if (req.url.startsWith("/admin")) return;
 
     const key = req.headers["x-api-key"];
     if (!key || Array.isArray(key)) {

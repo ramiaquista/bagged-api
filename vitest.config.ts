@@ -9,6 +9,16 @@ export default defineConfig({
     // silently depending on a var nobody set.
     env: {
       ALLOW_DEV_KEY: "true",
+      // test/admin.test.ts logs in for real via POST /admin/login -- set
+      // explicitly (rather than relying on src/config.ts's own dev
+      // defaults, which happen to be the same values) so the test suite
+      // doesn't silently depend on a coincidence nobody set on purpose.
+      // Hash corresponds to the plaintext "admin-dev-password" -- see
+      // ADMIN_PASSWORD in test/admin.test.ts.
+      ADMIN_USERNAME: "admin",
+      ADMIN_PASSWORD_HASH:
+        "4b3fd450160c2d4b142ab0afd65255de:a3683f9381635ac75724080fe92923ddf02300d524c4bb98af04134d6da249530b65e58d3cfcac5e0ab5a8777407d1d8687b0a26b24a7da8b8a2962260a4e17d",
+      ADMIN_SESSION_SECRET: "test-admin-session-secret",
     },
     // Several suites (db-api-keys.test.ts, api-key-auth.test.ts,
     // rate-limit.test.ts, waitlist.test.ts, ...) share one real Postgres

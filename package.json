@@ -15,9 +15,11 @@
     "keys:create": "tsx scripts/manage-api-key.ts create",
     "keys:rotate": "tsx scripts/manage-api-key.ts rotate",
     "keys:revoke": "tsx scripts/manage-api-key.ts revoke",
-    "keys:list": "tsx scripts/manage-api-key.ts list"
+    "keys:list": "tsx scripts/manage-api-key.ts list",
+    "admin:hash-password": "tsx scripts/hash-admin-password.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^10.0.1",
     "@fastify/rate-limit": "^10.1.1",
     "@fastify/websocket": "^11.0.1",

@@ -13,6 +13,28 @@ const EnvSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  // --- Admin dashboard auth (bagged-website's /admin) ---
+  // A real login for the one operator account, NOT the shared secret
+  // above -- API_KEY_SECRET / the dev key deliberately no longer grant
+  // /admin access (see src/plugins/apiKey.ts's /admin exemption and
+  // src/routes/admin.ts / src/lib/adminAuth.ts). No user table: there is
+  // exactly one admin today.
+  ADMIN_USERNAME: z.string().min(1).default("admin"),
+  // `<saltHex>:<scryptHashHex>`, produced by `npm run admin:hash-password`
+  // (scripts/hash-admin-password.ts) -- never a plaintext password. The
+  // dev default below is the hash of "admin-dev-password" so local dev
+  // works out of the box; change this in Railway/production exactly like
+  // API_KEY_SECRET above.
+  ADMIN_PASSWORD_HASH: z
+    .string()
+    .min(1)
+    .default(
+      "4b3fd450160c2d4b142ab0afd65255de:a3683f9381635ac75724080fe92923ddf02300d524c4bb98af04134d6da249530b65e58d3cfcac5e0ab5a8777407d1d8687b0a26b24a7da8b8a2962260a4e17d",
+    ),
+  // HMAC key that signs the admin session cookie (src/lib/adminAuth.ts).
+  // Never leave this at the default in Railway/production -- anyone who
+  // has it can forge a valid admin session without ever logging in.
+  ADMIN_SESSION_SECRET: z.string().min(1).default("dev-session-secret-change-me"),
   // Defaults to the local docker-compose Postgres (same pattern as
   // API_KEY_SECRET above) so `npm run dev` / `npm test` work without extra
   // setup beyond `docker compose up -d`. Railway/production must set this

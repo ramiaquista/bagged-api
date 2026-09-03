@@ -1,3 +1,4 @@
+import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -58,7 +59,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(500).send({ error: "internal_error", message: "Something went wrong" });
   });
 
-  await app.register(cors, { origin: buildCorsOriginOption(config) });
+  // credentials: true -- required for the browser to accept the admin
+  // dashboard's session cookie on cross-site requests (bagged-website's
+  // bagged.life vs bagged-api's separate Railway domain). Safe alongside
+  // an allowlist-based `origin` function like buildCorsOriginOption:
+  // @fastify/cors reflects back the one matched origin (never `*`) when
+  // credentials are enabled, which is what the spec requires.
+  await app.register(cors, { origin: buildCorsOriginOption(config), credentials: true });
+  await app.register(cookie);
   await app.register(websocket);
   await app.register(dbPlugin);
   // apiKey before rateLimit: rateLimit's tier-aware max/timeWindow (see
