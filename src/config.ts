@@ -44,6 +44,14 @@ const EnvSchema = z.object({
   // partner-session secret must not also forge admin sessions. Never leave
   // this at the default in Railway/production.
   PARTNER_SESSION_SECRET: z.string().min(1).default("dev-partner-session-secret-change-me"),
+  // --- Consumer dashboard auth (bagged-website's /app) ---
+  // HMAC key that signs the consumer session cookie (src/lib/userAuth.ts).
+  // A third independent secret, same reasoning as PARTNER_SESSION_SECRET
+  // above -- /app, /b2b-dashboard and /admin are three fully separate auth
+  // domains, and a leaked secret for one must never forge a session for
+  // either of the others. Never leave this at the default in
+  // Railway/production.
+  USER_SESSION_SECRET: z.string().min(1).default("dev-user-session-secret-change-me"),
   // Defaults to the local docker-compose Postgres (same pattern as
   // API_KEY_SECRET above) so `npm run dev` / `npm test` work without extra
   // setup beyond `docker compose up -d`. Railway/production must set this
@@ -86,6 +94,17 @@ const EnvSchema = z.object({
   // -- this is a v1 background worker, not a durable job queue.
   WEBHOOK_DELIVERY_MAX_RETRIES: z.coerce.number().int().nonnegative().default(2),
   WEBHOOK_DELIVERY_BACKOFF_MS: z.coerce.number().int().positive().default(500),
+  // --- Daily PnL calendar worker (src/worker/dailyPnlWorker.ts) ---
+  // How often the worker recomputes real day-by-day realized PnL for
+  // every wallet linked from `/app` (src/routes/user.ts). Coarser than
+  // WEBHOOK_POLL_INTERVAL_MS by design: a webhook check is one cheap
+  // point-in-time PnL call per wallet, while a daily-PnL recompute re-walks
+  // a wallet's whole indexed trade history through cost-basis matching --
+  // heavier per wallet, so it runs less often. A wallet also gets an
+  // immediate one-off recompute right when a user links it (see
+  // src/routes/user.ts's POST /user/wallets), so a new wallet's calendar
+  // isn't empty until the next tick.
+  DAILY_PNL_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(15 * 60_000),
   // --- Waitlist signup notification email (src/lib/waitlistNotify.ts) ---
   // Optional Resend (https://resend.com) API key. Fully inert -- no
   // network call, no crash -- until set: notifyWaitlistSignup() no-ops

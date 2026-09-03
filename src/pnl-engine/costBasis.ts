@@ -22,8 +22,22 @@ import type { CostBasisResult, Trade } from "./types.js";
  * priced in USD, a plain running weighted-average walk is graduation-
  * agnostic by construction: there's nothing to reconcile because both
  * regimes feed the exact same (timestamp, side, quantity, priceUsd) shape.
+ *
+ * `onRealize`, when given, is called once per sell event with the trade's
+ * own `timestamp` and the USD delta it realized (matched-quantity proceeds
+ * minus their average cost, plus any zero-cost-basis unmatched-quantity
+ * proceeds -- see the "side === sell" branch below). Purely additive and
+ * optional: every existing call site's behavior and return value are
+ * unchanged. This is what src/providers/solana.ts's
+ * getWalletDailyRealizedPnl buckets by day for `/app`'s PnL calendar
+ * (src/worker/dailyPnlWorker.ts) -- realized PnL is inherently tied to the
+ * timestamp of the trade that booked it, so day-level history falls out of
+ * this same walk instead of needing a second, parallel implementation.
  */
-export function computeCostBasis(trades: Trade[]): CostBasisResult {
+export function computeCostBasis(
+  trades: Trade[],
+  onRealize?: (timestamp: string, deltaUsd: number) => void,
+): CostBasisResult {
   const sorted = [...trades].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
   let quantityHeld = 0;
@@ -62,7 +76,8 @@ export function computeCostBasis(trades: Trade[]): CostBasisResult {
     const soldQty = Math.min(trade.quantity, quantityHeld);
     const unmatchedQty = trade.quantity - soldQty;
 
-    realizedPnlUsd += soldQty * (trade.priceUsd - avgCostPerUnit);
+    let eventDeltaUsd = soldQty * (trade.priceUsd - avgCostPerUnit);
+    realizedPnlUsd += eventDeltaUsd;
     costBasisUsd -= soldQty * avgCostPerUnit;
     quantityHeld -= soldQty;
 
@@ -71,8 +86,12 @@ export function computeCostBasis(trades: Trade[]): CostBasisResult {
     // another wallet) still landed real USD in the wallet -- book it as
     // zero-cost-basis proceeds instead of silently dropping it.
     if (unmatchedQty > 0) {
-      realizedPnlUsd += unmatchedQty * trade.priceUsd;
+      const unmatchedProceedsUsd = unmatchedQty * trade.priceUsd;
+      realizedPnlUsd += unmatchedProceedsUsd;
+      eventDeltaUsd += unmatchedProceedsUsd;
     }
+
+    onRealize?.(trade.timestamp, eventDeltaUsd);
   }
 
   // Clamp float dust from repeated division/subtraction, relative to the

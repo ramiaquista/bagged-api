@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
 import { config } from "./config.js";
+import { startDailyPnlWorker } from "./worker/dailyPnlWorker.js";
 import { startWebhookWorker } from "./worker/webhookWorker.js";
 
 const app = await buildApp();
@@ -7,7 +8,9 @@ const app = await buildApp();
 // See src/worker/webhookWorker.ts's doc comment for why this is started
 // here (real server boot) rather than inside buildApp() (also used by
 // every test via app.inject(), with no listening socket or real lifetime).
+// src/worker/dailyPnlWorker.ts is the same shape, for the same reason.
 const webhookWorker = startWebhookWorker(app);
+const dailyPnlWorker = startDailyPnlWorker(app);
 
 let shuttingDown = false;
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
@@ -15,6 +18,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   shuttingDown = true;
   app.log.info({ signal }, "shutting down");
   webhookWorker.stop();
+  dailyPnlWorker.stop();
   await app.close();
   process.exit(0);
 }
@@ -26,5 +30,6 @@ try {
 } catch (err) {
   app.log.error(err);
   webhookWorker.stop();
+  dailyPnlWorker.stop();
   process.exit(1);
 }

@@ -23,6 +23,9 @@ export default defineConfig({
       // same reasoning as ADMIN_SESSION_SECRET above -- a fixed test
       // secret, not src/config.ts's own dev default.
       PARTNER_SESSION_SECRET: "test-partner-session-secret",
+      // test/user.test.ts logs in for real via POST /user/login, same
+      // reasoning as PARTNER_SESSION_SECRET above.
+      USER_SESSION_SECRET: "test-user-session-secret",
     },
     // Several suites (db-api-keys.test.ts, api-key-auth.test.ts,
     // rate-limit.test.ts, waitlist.test.ts, ...) share one real Postgres

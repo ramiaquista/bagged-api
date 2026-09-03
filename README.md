@@ -153,6 +153,71 @@ operator account with no signup at all. Backed by the `partners` table
   CLI today. A real self-serve plan switcher is a reasonable follow-up
   once billing exists.
 
+## Consumer dashboard (self-serve, bagged-website's `/app`)
+
+Where an individual creates their own account and tracks their own linked
+wallets' PnL — a big personal PnL card and a monthly calendar showing real
+per-day PnL. A *third*, fully independent auth domain alongside the
+internal `/admin` operator login and the self-serve `/b2b-dashboard`
+(above): `/app` accounts never touch the `api_keys`/tier surface at all.
+Backed by the `users`/`user_wallets` tables (`db/schema.sql`) and
+`src/routes/user.ts` / `src/lib/userAuth.ts`.
+
+- **Auth**: email + password, scrypt-hashed, same mechanism shape as
+  `/partner`/`/admin` but its own secret/cookie/table (`bagged_user_session`,
+  `USER_SESSION_SECRET`, 30-day TTL, `/user` cookie path) — see the module
+  comment on `src/routes/user.ts`. `src/plugins/apiKey.ts` exempts `/user`
+  entirely, same reasoning as its `/admin`/`/partner` exemptions.
+- **Endpoints**: `POST /user/signup` (no API key is issued — unlike
+  `/partner/signup`, a consumer account isn't a developer credential),
+  `POST /user/login`, `POST /user/logout`, `GET /user/session`,
+  `GET /user/me`, `GET /user/wallets` (linked wallets with live PnL per
+  wallet), `POST /user/wallets` (links a wallet, capped at
+  `USER_MAX_WALLETS`, 25, per account — resolves/creates the shared
+  `wallets` row via `src/db/wallets.ts`'s `findOrCreateWallet`, same as
+  `/webhooks` does), `POST /user/wallets/:walletId/unlink`,
+  `GET /user/portfolio?range=7d|30d|all` (the PnL card: range-scoped real
+  realized PnL, live current unrealized PnL, a real cumulative sparkline,
+  and a 30-day win rate — all derived from stored data, not fabricated),
+  `GET /user/calendar?month=YYYY-MM` (every day of the month with its real
+  realized PnL, or `tracked: false` where there's no real data yet — see
+  "Daily PnL calendar worker" below).
+- **Realized-only calendar, deliberately**: a day's *unrealized* PnL isn't
+  a knowable historical fact without a price-history source — neither
+  chain provider has one yet (see "What's real vs. stubbed" below) — so
+  the calendar only ever shows real, closed-trade-derived realized PnL per
+  day. `unrealized_pnl_usd` stays a live, current-moment figure on the
+  hero card, same as `GET /wallet/:address/pnl` elsewhere in this API.
+
+## Daily PnL calendar worker
+
+`GET /user/calendar`'s real per-day figures are precomputed, not derived
+per request (recomputing a wallet's full cost-basis walk on every page
+view doesn't scale) — `src/worker/dailyPnlWorker.ts`:
+
+- On a timer (`DAILY_PNL_POLL_INTERVAL_MS`, default 15 minutes), recomputes
+  every distinct wallet any `/app` user has linked
+  (`src/db/userWallets.ts`'s `listAllLinkedWallets`).
+- Per wallet: asks its chain provider for real day-by-day realized PnL
+  (`SolanaProvider.getWalletDailyRealizedPnl` — reuses the same
+  Helius-fills → `filterWashTrades` → `computeCostBasis` pipeline
+  `getWalletPnl` already runs, with `computeCostBasis`'s new optional
+  `onRealize` callback bucketing each sell event's delta by the UTC day of
+  its own trade timestamp) and replaces that wallet's stored rows wholesale
+  (`src/db/dailyPnl.ts`'s `replaceDailyRealizedPnl` — a wash-trade
+  reclassification or newly-indexed older fill can change *which* days
+  have data, not just their amounts, so a stale day left from a prior
+  compute has to be cleared, not merged over).
+- A chain whose provider doesn't implement the optional
+  `DailyRealizedPnlProvider` capability (today, every EVM chain — see
+  `src/providers/types.ts`) is skipped, not an error.
+- `POST /user/wallets` also calls this once, inline, for the newly-linked
+  wallet — so a fresh wallet's calendar isn't empty until the next tick.
+- Same lifecycle/testing shape as the webhook delivery worker below:
+  started from `src/index.ts` (real server boot), never inside
+  `buildApp()`; a failure on one wallet is logged and skipped, not fatal
+  to the cycle.
+
 ## What's real vs. stubbed right now
 
 This is a scaffold: the full API surface from the product spec is
@@ -189,10 +254,16 @@ at the top of its file — the short version:
   browser — see `src/plugins/apiKey.ts`. `GET /waitlist/count` and `GET
   /waitlist` (the full entry list) both require `x-api-key`.
 - `db/schema.sql` — the Postgres schema. `waitlist`, `api_keys` (plus
-  `api_key_usage`), `wallets`, `webhooks`, and `pnl_snapshots` are all wired
-  up now (see "Persistence" and "Webhook delivery worker" below);
-  `trades`/`positions` are still just schema, unused until a route persists
-  computed positions rather than recomputing them per-request.
+  `api_key_usage`), `wallets`, `webhooks`, `pnl_snapshots`, `partners`,
+  `users`/`user_wallets`, and `daily_realized_pnl` are all wired up now
+  (see "Persistence", "Webhook delivery worker", "Consumer dashboard", and
+  "Daily PnL calendar worker" above/below); `trades`/`positions` are still
+  just schema, unused until a route persists computed positions rather than
+  recomputing them per-request.
+- `src/routes/user.ts` — **real**, backed by Postgres (see "Consumer
+  dashboard" above): self-serve `/app` accounts, wallet linking, and a real
+  (realized-PnL) monthly calendar, kept up to date by
+  `src/worker/dailyPnlWorker.ts`.
 
 ## Persistence
 
@@ -428,16 +499,17 @@ src/
   plugins/              # apiKey (real per-key auth), db (pg pool), rateLimit (real per-tier limits)
   routes/                # one file per route group
   schemas/                 # zod schemas shared by routes + tests
-  providers/                 # ChainProvider interface + Solana (mock) / EVM (real) + registry
+  providers/                 # ChainProvider interface + Solana / EVM + registry (see "What's real vs. stubbed" above for per-chain status)
+    solana/                      # Helius + Jupiter clients, Helius-swap -> Trade[] mapping
     alchemy/                     # Alchemy HTTP client (JSON-RPC + Enhanced APIs + Prices API)
     launchpads/                   # per-chain bonding-curve resolvers (four.meme, hood.fun, ...)
     evmTradeBuilder.ts               # pairs raw Alchemy transfers into priced Trade[]
-  pnl-engine/                  # cost-basis / wash-trade / rug-resolution skeleton
-  db/                              # pg Pool + per-table data-access helpers (waitlist, apiKeys, partners, requestLog, webhooks, wallets, pnlSnapshots)
-  worker/                         # webhook delivery worker (webhookWorker, pnlDiff, deliver)
-  lib/                            # errors, tiers, adminAuth, partnerAuth, etc.
+  pnl-engine/                  # cost-basis (real, w/ optional per-event onRealize callback) / wash-trade / rug-resolution
+  db/                              # pg Pool + per-table data-access helpers (waitlist, apiKeys, partners, users, userWallets, dailyPnl, requestLog, webhooks, wallets, pnlSnapshots)
+  worker/                         # webhookWorker (delivery), dailyPnlWorker (calendar), pnlDiff, deliver
+  lib/                            # errors, tiers, adminAuth, partnerAuth, userAuth, etc.
 db/
-  schema.sql                        # Postgres schema (waitlist, api_keys, partners, api_request_log, webhooks, wallets, pnl_snapshots wired up; trades/positions still pending)
+  schema.sql                        # Postgres schema (waitlist, api_keys, partners, api_request_log, webhooks, wallets, pnl_snapshots, users, user_wallets, daily_realized_pnl wired up; trades/positions still pending)
 scripts/
   manage-api-key.ts                   # internal CLI: create/rotate/revoke/list API keys
 test/                                  # vitest, uses Fastify's inject() — no real server needed

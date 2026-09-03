@@ -37,14 +37,39 @@ create table wallets (
   unique (chain, address)
 );
 
--- Links a Bagged customer's user_id to the wallets that make up their
--- portfolio — what GET /portfolio/{user_id} rolls up.
+-- Self-serve consumer (B2C) accounts backing bagged-website's `/app` --
+-- see src/routes/user.ts and src/lib/userAuth.ts. A third, independent
+-- auth domain alongside `partners` (self-serve API customers, /b2b-
+-- dashboard) and the single env-configured /admin operator: any number of
+-- individuals sign themselves up here with an email + password to track
+-- their own wallets' PnL, and never touch the API-key surface at all.
+--
+-- `password_hash` uses the same scrypt KDF as `partners.password_hash` /
+-- ADMIN_PASSWORD_HASH -- same rationale (a human-chosen password needs a
+-- slow salted hash). `email` is stored already-lowercased (src/schemas/
+-- user.ts normalizes it), same convention as `partners.email` /
+-- `waitlist.email` above.
+create table users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  password_hash text not null,
+  display_name text,
+  created_at timestamptz not null default now()
+);
+
+-- Links a signed-up user (`users.id`) to the wallets that make up their
+-- tracked portfolio -- what GET /user/portfolio and GET /user/calendar
+-- roll up. Superseded the original `user_id text` draft of this table
+-- (never wired to any code, no FK) now that a real `users` table exists to
+-- reference.
 create table user_wallets (
-  user_id text not null,
+  user_id uuid not null references users (id) on delete cascade,
   wallet_id uuid not null references wallets (id) on delete cascade,
+  label text,
   linked_at timestamptz not null default now(),
   primary key (user_id, wallet_id)
 );
+create index user_wallets_user_idx on user_wallets (user_id);
 
 -- Raw fills, as ingested from Helius / Alchemy / Moralis. This is the input
 -- to src/pnl-engine — wash-trade filtering, cost-basis, and rug resolution
@@ -90,6 +115,37 @@ create table pnl_snapshots (
   snapshot_at timestamptz not null default now()
 );
 create index pnl_snapshots_wallet_time_idx on pnl_snapshots (wallet_id, snapshot_at desc);
+
+-- Real per-day REALIZED PnL for a wallet, the source for `/app`'s monthly
+-- PnL calendar (src/routes/user.ts's GET /user/calendar) -- see
+-- src/worker/dailyPnlWorker.ts, which (re)computes this from actual trade
+-- history (Helius fills -> filterWashTrades -> computeCostBasis, same
+-- pipeline as GET /wallet/:address/pnl) and buckets each closed-trade's
+-- realized delta by the UTC day it happened on.
+--
+-- REALIZED ONLY, DELIBERATELY: unrealized PnL depends on a token's live
+-- price, and neither provider integration (see src/providers/solana.ts /
+-- evm.ts) has a historical price source -- there's no honest way to say
+-- what an *open* position was worth on a past date. Realized PnL doesn't
+-- have that problem: it's derived from each trade's own timestamp and
+-- price, so it's exact for whatever trade history the provider's indexer
+-- window actually covers (see heliusClient.ts's MAX_PAGES comment) --
+-- older days simply have no row here rather than a fabricated one.
+--
+-- One row per (wallet, day) -- `on conflict` upsert, see
+-- src/db/dailyPnl.ts's upsertDailyRealizedPnl -- recomputed wholesale on
+-- every worker cycle rather than incrementally, since a wash-trade
+-- reclassification or a newly-indexed older fill can change a past day's
+-- number, not just today's.
+create table daily_realized_pnl (
+  wallet_id uuid not null references wallets (id) on delete cascade,
+  day date not null,
+  realized_pnl_usd numeric not null,
+  trade_count integer not null default 0,
+  computed_at timestamptz not null default now(),
+  primary key (wallet_id, day)
+);
+create index daily_realized_pnl_wallet_day_idx on daily_realized_pnl (wallet_id, day desc);
 
 -- Self-serve partner (developer/customer) accounts backing bagged-website's
 -- `/b2b-dashboard` -- see src/routes/partner.ts and src/lib/partnerAuth.ts.

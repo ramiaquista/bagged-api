@@ -76,6 +76,11 @@ export default fp(async function apiKeyPlugin(app: FastifyInstance) {
     // src/routes/partner.ts's requirePartnerSession and
     // src/lib/partnerAuth.ts. Same reasoning as the /admin exemption above.
     if (req.url.startsWith("/partner")) return;
+    // Consumer dashboard (bagged-website's /app) -- see
+    // src/routes/user.ts's requireUserSession and src/lib/userAuth.ts.
+    // Same reasoning as the /admin and /partner exemptions above: its own
+    // session-cookie login, not an `x-api-key` this plugin would recognize.
+    if (req.url.startsWith("/user")) return;
 
     const key = req.headers["x-api-key"];
     if (!key || Array.isArray(key)) {

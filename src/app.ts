@@ -19,6 +19,7 @@ import mcpRoutes from "./routes/mcp.js";
 import partnerRoutes from "./routes/partner.js";
 import portfolioRoutes from "./routes/portfolio.js";
 import streamRoutes from "./routes/stream.js";
+import userRoutes from "./routes/user.js";
 import walletRoutes from "./routes/wallet.js";
 import waitlistRoutes from "./routes/waitlist.js";
 import walletsRoutes from "./routes/wallets.js";
@@ -96,6 +97,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(waitlistRoutes);
   await app.register(adminRoutes);
   await app.register(partnerRoutes);
+  await app.register(userRoutes);
   await app.register(mcpRoutes);
 
   return app;

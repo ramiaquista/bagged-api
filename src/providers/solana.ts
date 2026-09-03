@@ -7,7 +7,7 @@ import type { Position } from "../schemas/position.js";
 import { fetchAssetMetadata, fetchRecentSwaps } from "./solana/heliusClient.js";
 import { fetchUsdPrices } from "./solana/jupiterClient.js";
 import { mapHeliusSwapsToTrades, WSOL_MINT } from "./solana/mapTrades.js";
-import type { ChainProvider } from "./types.js";
+import type { ChainProvider, DailyRealizedPnl, DailyRealizedPnlProvider } from "./types.js";
 
 const DUST_QTY = 1e-9;
 
@@ -54,7 +54,7 @@ function round(value: number, decimals: number): number {
  * approximations (documented in detail in mapTrades.ts and resolveRugs's
  * doc comment).
  */
-export class SolanaProvider implements ChainProvider {
+export class SolanaProvider implements ChainProvider, DailyRealizedPnlProvider {
   readonly chain: Chain = "solana";
 
   async getWalletPnl(address: string): Promise<WalletPnl> {
@@ -150,6 +150,50 @@ export class SolanaProvider implements ChainProvider {
     }
 
     return positions.sort((a, b) => b.value_usd - a.value_usd);
+  }
+
+  /**
+   * Real per-day REALIZED PnL (see providers/types.ts's DailyRealizedPnlProvider
+   * doc comment for why this is realized-only). Reuses loadTokenPositions's
+   * already-fetched, already-wash-filtered trades -- no extra network
+   * calls -- and re-walks each mint's clean trades through
+   * computeCostBasis a second time purely for its per-sell-event callback;
+   * that walk is pure/cheap (no I/O), and keeping it separate from the
+   * aggregate call in getWalletPnl/getWalletPositions avoids threading an
+   * optional callback through every other call site for a capability only
+   * this one needs.
+   *
+   * Bucketed by the UTC calendar day of each trade's own timestamp (already
+   * ISO 8601 -- see pnl-engine/types.ts's Trade.timestamp), so a day's
+   * figure only ever reflects trades whose fills actually happened that
+   * day. Empty array (not zeros) when there's no configured Helius key or
+   * the wallet has no indexed history -- same "well-formed but empty"
+   * degradation as loadTokenPositions's null-perToken case elsewhere in
+   * this file.
+   */
+  async getWalletDailyRealizedPnl(address: string): Promise<DailyRealizedPnl[]> {
+    const { perToken } = await this.loadTokenPositions(address);
+    if (perToken === null) return [];
+
+    const byDay = new Map<string, { realizedPnlUsd: number; tradeCount: number }>();
+    const onRealize = (timestamp: string, deltaUsd: number): void => {
+      const day = timestamp.slice(0, 10);
+      const existing = byDay.get(day);
+      if (existing) {
+        existing.realizedPnlUsd += deltaUsd;
+        existing.tradeCount += 1;
+      } else {
+        byDay.set(day, { realizedPnlUsd: deltaUsd, tradeCount: 1 });
+      }
+    };
+
+    for (const acc of perToken.values()) {
+      computeCostBasis(acc.trades, onRealize);
+    }
+
+    return [...byDay.entries()]
+      .map(([day, v]) => ({ day, realizedPnlUsd: round(v.realizedPnlUsd, 2), tradeCount: v.tradeCount }))
+      .sort((a, b) => a.day.localeCompare(b.day));
   }
 
   private zeroPnl(address: string): WalletPnl {
