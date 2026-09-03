@@ -13,3 +13,13 @@ export const CreateApiKeySchema = z.object({
   tier: TierSchema,
 });
 export type CreateApiKeyRequest = z.infer<typeof CreateApiKeySchema>;
+
+/**
+ * Body for `POST /admin/login` (src/routes/admin.ts) -- the dashboard's
+ * real username+password login, replacing the old shared x-api-key gate.
+ */
+export const AdminLoginSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+export type AdminLoginRequest = z.infer<typeof AdminLoginSchema>;
