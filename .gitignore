@@ -6,3 +6,4 @@ dist
 coverage
 
 _to_delete/
+_stage_tmp/
