@@ -29,7 +29,12 @@ declare module "fastify" {
  * require a secret. Everything else under `/waitlist` (e.g. `GET
  * /waitlist/count`) stays authenticated. `/admin` (all of it) is also
  * exempt -- it has its own real session-cookie login now (src/routes/admin.ts,
- * src/lib/adminAuth.ts), not gated by this plugin at all.
+ * src/lib/adminAuth.ts), not gated by this plugin at all. Same for
+ * `/partner` (all of it) -- bagged-website's self-serve `/b2b-dashboard`,
+ * gated by its own session-cookie login instead (src/routes/partner.ts,
+ * src/lib/partnerAuth.ts). Neither dashboard's session cookie is an
+ * `x-api-key` this plugin would recognize, so both must be exempt here or
+ * every dashboard request would 401 before its own auth even runs.
  *
  * BACKWARD COMPATIBILITY (deliberate, not an oversight): the legacy shared
  * `API_KEY_SECRET` -- and the local-only `dev` bypass key, gated behind
@@ -67,6 +72,10 @@ export default fp(async function apiKeyPlugin(app: FastifyInstance) {
     // admin access; previously it did, via req.apiKey.legacy, which was
     // this route's entire gate.
     if (req.url.startsWith("/admin")) return;
+    // Partner dashboard (bagged-website's /b2b-dashboard) -- see
+    // src/routes/partner.ts's requirePartnerSession and
+    // src/lib/partnerAuth.ts. Same reasoning as the /admin exemption above.
+    if (req.url.startsWith("/partner")) return;
 
     const key = req.headers["x-api-key"];
     if (!key || Array.isArray(key)) {

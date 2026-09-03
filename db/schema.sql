@@ -91,6 +91,26 @@ create table pnl_snapshots (
 );
 create index pnl_snapshots_wallet_time_idx on pnl_snapshots (wallet_id, snapshot_at desc);
 
+-- Self-serve partner (developer/customer) accounts backing bagged-website's
+-- `/b2b-dashboard` -- see src/routes/partner.ts and src/lib/partnerAuth.ts.
+-- Distinct from the single-operator admin login (src/lib/adminAuth.ts,
+-- env-configured, no table): any number of partners sign themselves up
+-- here with an email + password, unlike the internal /admin dashboard's one
+-- hardcoded operator account.
+--
+-- `password_hash` uses the same scrypt KDF as ADMIN_PASSWORD_HASH (see
+-- src/lib/partnerAuth.ts) -- a human-chosen password, unlike an issued API
+-- key, is low-entropy and needs a slow salted hash. `email` is stored
+-- already-lowercased (src/schemas/partner.ts normalizes it), same
+-- convention as `waitlist.email` above.
+create table partners (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  password_hash text not null,
+  company_name text,
+  created_at timestamptz not null default now()
+);
+
 -- API keys — see src/plugins/apiKey.ts and src/db/apiKeys.ts (Item 5, real
 -- per-customer keys). Only a salted hash of the plaintext key is ever
 -- stored (sha256 -- see hashApiKey() in src/db/apiKeys.ts); the plaintext is
@@ -104,15 +124,26 @@ create index pnl_snapshots_wallet_time_idx on pnl_snapshots (wallet_id, snapshot
 -- a row here (not the legacy shared-secret/dev-key paths, which have no row
 -- to update) -- convenient for `manage-api-key.ts list` without joining
 -- against api_key_usage.
+--
+-- `partner_id` is null for every key issued by hand from /admin (the
+-- pre-existing path, src/routes/admin.ts) and set for a key that traces
+-- back to a self-serve /b2b-dashboard account (src/routes/partner.ts) --
+-- what lets a partner's dashboard scope `GET /partner/api-keys` etc. to
+-- only their own keys, and what a partner's rotate/revoke calls check
+-- ownership against. `on delete cascade` matches the wallets/webhooks
+-- pattern elsewhere in this file; there's no "delete my account" flow yet,
+-- so this is inert for now, not exercised.
 create table api_keys (
   id uuid primary key default gen_random_uuid(),
   key_hash text not null unique,
   owner_email text not null,
   tier text not null check (tier in ('free', 'builder', 'growth', 'enterprise')),
+  partner_id uuid references partners (id) on delete cascade,
   created_at timestamptz not null default now(),
   revoked_at timestamptz,
   last_used_at timestamptz
 );
+create index api_keys_partner_idx on api_keys (partner_id);
 
 -- Per-key request counters, bucketed into fixed-size time windows so a
 -- future usage-based rate limiter (NEXT_STEPS.md Item 7) can enforce
@@ -133,6 +164,29 @@ create table api_key_usage (
   primary key (api_key_id, window_start)
 );
 create index api_key_usage_key_idx on api_key_usage (api_key_id, window_start desc);
+
+-- Per-request log entries, one row per authenticated request from a real
+-- `api_keys` row (never the legacy shared-secret/dev-key paths, matching
+-- `api_key_usage` above -- see recordRequestLog() in src/db/requestLog.ts,
+-- written from an onResponse hook in src/plugins/requestLog.ts). Backs the
+-- "Logs" page of bagged-website's `/b2b-dashboard` -- a partner debugging
+-- their own integration needs to see recent calls (method, path, status),
+-- not just an aggregate count like `api_key_usage`'s minute buckets.
+--
+-- JUDGMENT CALL: this is a v1 recent-activity log, not a durable audit
+-- trail -- there's no retention/pruning job here (a reasonable follow-up
+-- once real traffic volume makes that necessary), and query call sites cap
+-- how many rows they read back (see listRequestLogs()) rather than this
+-- table capping how many exist.
+create table api_request_log (
+  id uuid primary key default gen_random_uuid(),
+  api_key_id uuid not null references api_keys (id) on delete cascade,
+  method text not null,
+  path text not null,
+  status_code integer not null,
+  created_at timestamptz not null default now()
+);
+create index api_request_log_key_idx on api_request_log (api_key_id, created_at desc);
 
 -- Registered PnL-threshold webhooks -- see src/routes/webhooks.ts (register/
 -- list/delete, backed by src/db/webhooks.ts) and src/worker/webhookWorker.ts

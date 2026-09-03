@@ -35,6 +35,15 @@ const EnvSchema = z.object({
   // Never leave this at the default in Railway/production -- anyone who
   // has it can forge a valid admin session without ever logging in.
   ADMIN_SESSION_SECRET: z.string().min(1).default("dev-session-secret-change-me"),
+  // --- Partner dashboard auth (bagged-website's /b2b-dashboard) ---
+  // HMAC key that signs the partner session cookie (src/lib/partnerAuth.ts).
+  // Deliberately a *separate* secret from ADMIN_SESSION_SECRET above, even
+  // though the mechanism is nearly identical -- the two dashboards are
+  // fully independent auth domains (see src/routes/partner.ts's module
+  // comment): rotating one must never invalidate the other, and a leaked
+  // partner-session secret must not also forge admin sessions. Never leave
+  // this at the default in Railway/production.
+  PARTNER_SESSION_SECRET: z.string().min(1).default("dev-partner-session-secret-change-me"),
   // Defaults to the local docker-compose Postgres (same pattern as
   // API_KEY_SECRET above) so `npm run dev` / `npm test` work without extra
   // setup beyond `docker compose up -d`. Railway/production must set this

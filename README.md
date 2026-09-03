@@ -51,8 +51,11 @@ just the single shared secret.
   "Rate limiting" below) now enforces against these placeholders — replace
   them with the real spec numbers once available and the enforced limits
   follow automatically.
-- **Issuance/rotation**: no self-serve dashboard (explicitly out of scope
-  per NEXT_STEPS.md) — an internal CLI instead:
+- **Issuance/rotation**: two paths now. A partner can self-serve their own
+  key(s) via bagged-website's `/b2b-dashboard` (see "Partner dashboard"
+  below, `src/routes/partner.ts`) — always issued on the `free` tier. Or,
+  for a hand-issued key at any tier (including upgrading someone off
+  free), the internal CLI still works exactly as before:
 
   ```bash
   npm run keys:create -- --email owner@example.com --tier builder
@@ -104,6 +107,51 @@ just the single shared secret.
   write usage counters (there's no `api_keys.id` to attribute usage to).
   Migrating Railway's real traffic onto issued keys and retiring this path
   is a deliberate follow-up, not part of this item.
+
+## Partner dashboard (self-serve, bagged-website's `/b2b-dashboard`)
+
+Where a new partner creates their own account, gets an API key, and tracks
+their usage/limits and recent request logs — the self-serve counterpart to
+the internal `/admin` dashboard (below), which is one hand-configured
+operator account with no signup at all. Backed by the `partners` table
+(`db/schema.sql`) and `src/routes/partner.ts` / `src/lib/partnerAuth.ts`.
+
+- **Auth**: email + password, hashed with scrypt (same KDF as the admin
+  login, `src/lib/adminAuth.ts`, just a separate secret/cookie/table — see
+  the module comment on `src/routes/partner.ts`). No email verification in
+  this v1 (no email-sending service is configured — see `RESEND_API_KEY`
+  above) and no magic-link option; a real password is the whole gate.
+  Session is a signed, `HttpOnly` cookie (`bagged_partner_session`, 30-day
+  TTL — much longer than the admin dashboard's 12 hours, matching typical
+  developer-dashboard "stay signed in" expectations), scoped to the
+  `/partner` cookie path, `src/plugins/apiKey.ts` exempts `/partner`
+  entirely (its own session auth, not `x-api-key`).
+- **Endpoints**: `POST /partner/signup` (creates the account, issues a
+  free-tier key, signs the caller in — one flow, not a separate "now go
+  make a key" step), `POST /partner/login`, `POST /partner/logout`,
+  `GET /partner/session` (cheap cookie-validity check for the dashboard's
+  mount-time gate), `GET /partner/me`, `GET /partner/api-keys`,
+  `POST /partner/api-keys` (capped at `PARTNER_MAX_ACTIVE_KEYS`, 5, active
+  keys per partner), `POST /partner/api-keys/:id/rotate`,
+  `POST /partner/api-keys/:id/revoke` (both 404, not 403, on another
+  partner's key id — existence isn't leaked), `GET /partner/usage`
+  (per-key hourly/monthly tier limits plus real request counts from the
+  last hour/24h, read from the same `api_key_usage` counters
+  `src/plugins/rateLimit.ts` enforces against), `GET /partner/logs` (most
+  recent ~100 requests across the partner's key(s), from the new
+  `api_request_log` table — see below).
+- **Request logging**: `api_request_log` (`db/schema.sql`), written by a
+  new `onResponse` hook (`src/plugins/requestLog.ts`) for every request
+  that resolves to a real, non-legacy `api_keys` row. A v1 recent-activity
+  log, not a durable audit trail — no retention/pruning job yet.
+- **Scope deliberately excludes plan/billing management**: every self-serve
+  key is issued on the `free` tier; there's no self-serve tier switcher.
+  This codebase has no billing/payment integration, so building one would
+  either have to fake it or block on Stripe setup — out of scope for this
+  item by explicit decision. Moving a partner to `builder`/`growth` stays
+  a manual action via the existing `/admin` dashboard or `keys:create`
+  CLI today. A real self-serve plan switcher is a reasonable follow-up
+  once billing exists.
 
 ## What's real vs. stubbed right now
 
@@ -385,11 +433,11 @@ src/
     launchpads/                   # per-chain bonding-curve resolvers (four.meme, hood.fun, ...)
     evmTradeBuilder.ts               # pairs raw Alchemy transfers into priced Trade[]
   pnl-engine/                  # cost-basis / wash-trade / rug-resolution skeleton
-  db/                              # pg Pool + per-table data-access helpers (waitlist, apiKeys, webhooks, wallets, pnlSnapshots)
+  db/                              # pg Pool + per-table data-access helpers (waitlist, apiKeys, partners, requestLog, webhooks, wallets, pnlSnapshots)
   worker/                         # webhook delivery worker (webhookWorker, pnlDiff, deliver)
-  lib/                            # errors, tiers, etc.
+  lib/                            # errors, tiers, adminAuth, partnerAuth, etc.
 db/
-  schema.sql                        # Postgres schema (waitlist, api_keys, webhooks, wallets, pnl_snapshots wired up; trades/positions still pending)
+  schema.sql                        # Postgres schema (waitlist, api_keys, partners, api_request_log, webhooks, wallets, pnl_snapshots wired up; trades/positions still pending)
 scripts/
   manage-api-key.ts                   # internal CLI: create/rotate/revoke/list API keys
 test/                                  # vitest, uses Fastify's inject() — no real server needed

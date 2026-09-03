@@ -10,10 +10,12 @@ import { captureException, initSentry } from "./lib/sentry.js";
 import apiKeyPlugin from "./plugins/apiKey.js";
 import dbPlugin from "./plugins/db.js";
 import rateLimitPlugin from "./plugins/rateLimit.js";
+import requestLogPlugin from "./plugins/requestLog.js";
 import adminRoutes from "./routes/admin.js";
 import cardRoutes from "./routes/card.js";
 import healthRoutes from "./routes/health.js";
 import leaderboardRoutes from "./routes/leaderboard.js";
+import partnerRoutes from "./routes/partner.js";
 import portfolioRoutes from "./routes/portfolio.js";
 import streamRoutes from "./routes/stream.js";
 import walletRoutes from "./routes/wallet.js";
@@ -78,6 +80,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   // guarantee of the same thing.
   await app.register(apiKeyPlugin);
   await app.register(rateLimitPlugin);
+  // After apiKeyPlugin: needs req.apiKey (set onRequest) to know which key
+  // to attribute a response to -- see that plugin's own comment.
+  await app.register(requestLogPlugin);
 
   await app.register(healthRoutes);
   await app.register(cardRoutes);
@@ -89,6 +94,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(streamRoutes);
   await app.register(waitlistRoutes);
   await app.register(adminRoutes);
+  await app.register(partnerRoutes);
 
   return app;
 }
