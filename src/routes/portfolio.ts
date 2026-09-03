@@ -13,28 +13,35 @@ const ParamsSchema = z.object({ userId: z.string().min(1) });
  * STATUS: stub. Real implementation needs a `user_wallets` link table
  * (user_id -> [{chain, address}]) — see db/schema.sql — instead of the
  * fixed one-wallet-per-chain mock set used here.
+ *
+ * Exported (not inlined in the route below) so src/mcp/tools.ts's
+ * `get_portfolio` tool computes the identical result instead of
+ * duplicating this per-chain rollup.
  */
+export async function getPortfolio(userId: string) {
+  const perWallet = await Promise.all(
+    CHAINS.map((chain) => getProvider(chain).getWalletPnl(MOCK_WALLETS[chain])),
+  );
+
+  const totals = perWallet.reduce(
+    (acc, w) => ({
+      realized_pnl_usd: acc.realized_pnl_usd + w.realized_pnl_usd,
+      unrealized_pnl_usd: acc.unrealized_pnl_usd + w.unrealized_pnl_usd,
+      total_pnl_usd: acc.total_pnl_usd + w.total_pnl_usd,
+    }),
+    { realized_pnl_usd: 0, unrealized_pnl_usd: 0, total_pnl_usd: 0 },
+  );
+
+  return {
+    user_id: userId,
+    wallets: perWallet,
+    ...totals,
+  };
+}
+
 export default async function portfolioRoutes(app: FastifyInstance) {
   app.get("/portfolio/:userId", async (req) => {
     const { userId } = ParamsSchema.parse(req.params);
-
-    const perWallet = await Promise.all(
-      CHAINS.map((chain) => getProvider(chain).getWalletPnl(MOCK_WALLETS[chain])),
-    );
-
-    const totals = perWallet.reduce(
-      (acc, w) => ({
-        realized_pnl_usd: acc.realized_pnl_usd + w.realized_pnl_usd,
-        unrealized_pnl_usd: acc.unrealized_pnl_usd + w.unrealized_pnl_usd,
-        total_pnl_usd: acc.total_pnl_usd + w.total_pnl_usd,
-      }),
-      { realized_pnl_usd: 0, unrealized_pnl_usd: 0, total_pnl_usd: 0 },
-    );
-
-    return {
-      user_id: userId,
-      wallets: perWallet,
-      ...totals,
-    };
+    return getPortfolio(userId);
   });
 }

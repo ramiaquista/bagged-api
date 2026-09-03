@@ -2,11 +2,13 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ChainSchema } from "../schemas/chain.js";
 
-const QuerySchema = z.object({
+/** Exported so src/mcp/tools.ts's `get_leaderboard` tool can reuse this exact shape as its input schema. */
+export const LeaderboardQuerySchema = z.object({
   chain: ChainSchema.optional(),
   window: z.enum(["24h", "7d", "30d"]).default("7d"),
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
+export type LeaderboardQuery = z.infer<typeof LeaderboardQuerySchema>;
 
 const MOCK_ENTRIES = [
   { wallet: "7xKXtg2CW87d9...f9Q2", chain: "solana", pnl_usd: 114208.42, pnl_pct: 38.6 },
@@ -19,14 +21,21 @@ const MOCK_ENTRIES = [
  * STATUS: stub, returns a fixed mock list regardless of query params.
  * Real implementation needs PnL snapshots persisted per wallet/chain/window
  * (see db/schema.sql `pnl_snapshots`) to rank against.
+ *
+ * Exported (not inlined in the route below) so src/mcp/tools.ts's
+ * `get_leaderboard` tool computes the identical result instead of
+ * duplicating this filter/slice/rank logic.
  */
+export function getLeaderboard({ chain, window, limit }: LeaderboardQuery) {
+  const entries = MOCK_ENTRIES.filter((e) => !chain || e.chain === chain)
+    .slice(0, limit)
+    .map((e, i) => ({ rank: i + 1, ...e }));
+
+  return { chain: chain ?? "all", window, entries };
+}
+
 export default async function leaderboardRoutes(app: FastifyInstance) {
   app.get("/leaderboard", async (req) => {
-    const { chain, window, limit } = QuerySchema.parse(req.query);
-    const entries = MOCK_ENTRIES.filter((e) => !chain || e.chain === chain)
-      .slice(0, limit)
-      .map((e, i) => ({ rank: i + 1, ...e }));
-
-    return { chain: chain ?? "all", window, entries };
+    return getLeaderboard(LeaderboardQuerySchema.parse(req.query));
   });
 }

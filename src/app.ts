@@ -15,6 +15,7 @@ import adminRoutes from "./routes/admin.js";
 import cardRoutes from "./routes/card.js";
 import healthRoutes from "./routes/health.js";
 import leaderboardRoutes from "./routes/leaderboard.js";
+import mcpRoutes from "./routes/mcp.js";
 import partnerRoutes from "./routes/partner.js";
 import portfolioRoutes from "./routes/portfolio.js";
 import streamRoutes from "./routes/stream.js";
@@ -95,6 +96,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(waitlistRoutes);
   await app.register(adminRoutes);
   await app.register(partnerRoutes);
+  await app.register(mcpRoutes);
 
   return app;
 }
