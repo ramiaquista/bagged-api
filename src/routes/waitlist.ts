@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { countWaitlistEntries, insertWaitlistSignup, listWaitlistEntries } from "../db/waitlist.js";
 import { notifyWaitlistSignup } from "../lib/waitlistNotify.js";
+import { sendWaitlistWelcomeEmail } from "../lib/waitlistWelcomeEmail.js";
 import { WaitlistSignupSchema } from "../schemas/waitlist.js";
 
 /**
@@ -42,13 +43,13 @@ export default async function waitlistRoutes(app: FastifyInstance) {
       }
 
       // Only for a genuinely new signup -- never for a resubmit of an
-      // already-registered email. Awaited (not fire-and-forget) so
-      // request logs and this route's own error handling cover it, but
-      // it can never fail or delay this response beyond a normal HTTP
-      // call: notifyWaitlistSignup() catches everything internally and
-      // always resolves (see its own doc comment). The waitlist row
-      // above has already committed either way.
-      await notifyWaitlistSignup(body, req.log);
+      // already-registered email. Both notifications are awaited (not
+      // fire-and-forget) so request logs and this route's own error handling
+      // cover them, but they can never fail or delay this response beyond a
+      // normal HTTP call: both functions catch everything internally and
+      // always resolve. The waitlist row above has already committed either way.
+      await notifyWaitlistSignup(body, req.log); // Notify admin
+      await sendWaitlistWelcomeEmail(body.email, req.log); // Send welcome to customer
 
       reply.code(201);
       return { status: "ok" };
