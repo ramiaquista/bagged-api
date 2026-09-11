@@ -83,7 +83,7 @@ export function buildTradesFromTransfers(
       continue;
     }
 
-    // Sell: token out + returns (native or wrapped)
+    // Sell: token out + returns (native, wrapped, or reward tokens from async settlement)
     if (tokenOut.length === 1) {
       const token = tokenOut[0]!;
       const quantity = token.value ?? 0;
@@ -99,15 +99,17 @@ export function buildTradesFromTransfers(
           }
         }
 
-        // Fallback: if no native in, check for ERC-20 token proceeds (wrapped native)
+        // Fallback: if no native in, check for ERC-20 token proceeds (wrapped native or reward tokens)
+        // This handles both wrapped stables and reward token settlements (e.g., COIN on Robinhood Chain)
         if (proceedsUsd === 0) {
           const tokensIn = group.filter((t) => t.category === "erc20" && t.to === walletLc && t.tokenAddress && t.tokenAddress !== token.tokenAddress);
           if (tokensIn.length >= 1) {
+            // Use native price as proxy for reward tokens (reasonable for chain-native tokens like COIN)
             proceedsUsd = tokensIn.reduce((sum, t) => sum + (t.value ?? 0), 0) * (nativePriceUsd ?? 1);
           }
         }
 
-        // Last resort: if still no proceeds found, check for ANY transfer from token recipient back to wallet
+        // Last resort: check for ANY transfer from token recipient back to wallet
         // This handles bonding curves that route proceeds through intermediate contracts
         if (proceedsUsd === 0) {
           const tokenRecipient = token.to;

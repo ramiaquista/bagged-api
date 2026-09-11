@@ -28,11 +28,10 @@ export interface AlchemyClient {
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;
-// ~1000 transfers/page x 5 pages x 2 directions = up to 10k transfers pulled
-// per wallet. Enough for a v1 wallet history pull without risking an
-// unbounded loop against a very high-activity address; revisit with real
-// pagination/streaming if that turns out to be too low for whale wallets.
-const MAX_PAGES_PER_DIRECTION = 5;
+// ~1000 transfers/page x 10 pages x 2 directions = up to 20k transfers pulled
+// per wallet. Increased from 5 to capture bonding-curve claim transactions that
+// may settle asynchronously after the initial sale (e.g., Robinhood Chain).
+const MAX_PAGES_PER_DIRECTION = 10;
 const PAGE_SIZE_HEX = "0x3e8"; // 1000
 
 interface JsonRpcResponse<T> {
