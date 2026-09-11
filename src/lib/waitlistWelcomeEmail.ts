@@ -228,7 +228,7 @@ export async function sendWaitlistWelcomeEmail(
           <div class="section-title">In the meantime</div>
           <ul class="feature-list">
             <li>📚 Read our <a href="https://bagged.life/docs">API documentation</a> to see what's coming</li>
-            <li>𝕏 Follow <a href="https://x.com/baggedlife">@baggedlife on X</a> for updates</li>
+            <li>𝕏 Follow us on <a href="https://x.com/baggedL1fe">X for updates</a></li>
             <li>💬 Reply to this email with feedback — we read everything</li>
           </ul>
         </div>
