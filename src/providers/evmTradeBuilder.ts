@@ -100,8 +100,18 @@ function parseSwapEventFromLogs(
         amount0 = Math.abs(amount0);
         amount1 = Math.abs(amount1);
 
-        // Pick the swap with the highest proceeds (max of amount0 or amount1)
-        const proceeds = Math.max(amount0, amount1);
+        // For hood.fun bonding curves, amount0 is typically the proceeds (native asset out)
+        // and amount1 might be fees/intermediates. Pick the smaller value when both are present.
+        // This avoids inflating proceeds by picking secondary events.
+        let proceeds = 0;
+        if (amount0 > 0 && amount1 > 0) {
+          // Both are non-zero: pick the smaller one (typically proceeds, not fees)
+          proceeds = Math.min(amount0, amount1);
+        } else {
+          // One is zero: pick whichever is non-zero
+          proceeds = Math.max(amount0, amount1);
+        }
+
         if (proceeds > maxProceeds && proceeds > 0) {
           maxProceeds = proceeds;
           bestSwap = { amount0, amount1 };
