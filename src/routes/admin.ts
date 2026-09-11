@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
 import { config } from "../config.js";
 import { createApiKey, listApiKeys, revokeApiKey, rotateApiKey } from "../db/apiKeys.js";
+import { approveEmail, getApprovedEmails, revokeEmailApproval } from "../db/approvedEmails.js";
 import { countWaitlistEntries, listWaitlistEntries } from "../db/waitlist.js";
 import { listWebhooks } from "../db/webhooks.js";
 import {
@@ -175,4 +177,29 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.get("/admin/webhooks", async () => ({ webhooks: await listWebhooks(app.db) }));
 
   app.get("/admin/waitlist", async () => ({ entries: await listWaitlistEntries(app.db) }));
+
+  // Approved emails management -- control who can sign up for /app and /b2b-dashboard
+  app.get("/admin/approved-emails", async () => {
+    const approvedEmails = await getApprovedEmails(app.db);
+    return { approvedEmails };
+  });
+
+  app.post("/admin/approved-emails", async (req, reply) => {
+    const body = z
+      .object({
+        email: z.string().email("Invalid email format"),
+        notes: z.string().optional(),
+      })
+      .parse(req.body);
+
+    await approveEmail(app.db, body.email.toLowerCase(), "admin-user", body.notes);
+    reply.code(201);
+    return { approved: true, email: body.email.toLowerCase() };
+  });
+
+  app.post("/admin/approved-emails/:email/revoke", async (req) => {
+    const { email } = req.params as { email: string };
+    await revokeEmailApproval(app.db, email.toLowerCase());
+    return { revoked: true, email: email.toLowerCase() };
+  });
 }

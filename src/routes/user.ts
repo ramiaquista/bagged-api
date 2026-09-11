@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { config } from "../config.js";
+import { isEmailApproved } from "../db/approvedEmails.js";
 import { listDailyRealizedPnl, sumRealizedPnl } from "../db/dailyPnl.js";
 import { createUser, findUserByEmailWithHash, findUserById, UserEmailTakenError } from "../db/users.js";
 import { countWalletsForUser, linkWallet, listWalletsForUser, unlinkWallet, WalletAlreadyLinkedError } from "../db/userWallets.js";
@@ -101,6 +102,12 @@ export default async function userRoutes(app: FastifyInstance) {
 
   app.post("/user/signup", { config: { rateLimit: USER_SIGNUP_RATE_LIMIT } }, async (req, reply) => {
     const body = UserSignupSchema.parse(req.body);
+
+    // Check if email is approved for signup
+    const approved = await isEmailApproved(app.db, body.email.toLowerCase());
+    if (!approved) {
+      throw ApiError.forbidden("This email address is not approved for signup. Please contact the administrator.");
+    }
 
     const passwordHash = hashUserPassword(body.password);
     let user;

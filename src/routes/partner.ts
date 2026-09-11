@@ -9,6 +9,7 @@ import {
   rotateApiKey,
   revokeApiKey,
 } from "../db/apiKeys.js";
+import { isEmailApproved } from "../db/approvedEmails.js";
 import { createPartner, findPartnerByEmailWithHash, findPartnerById, PartnerEmailTakenError } from "../db/partners.js";
 import { listRequestLogs } from "../db/requestLog.js";
 import { ApiError } from "../lib/errors.js";
@@ -132,6 +133,12 @@ export default async function partnerRoutes(app: FastifyInstance) {
 
   app.post("/partner/signup", { config: { rateLimit: PARTNER_SIGNUP_RATE_LIMIT } }, async (req, reply) => {
     const body = PartnerSignupSchema.parse(req.body);
+
+    // Check if email is approved for signup
+    const approved = await isEmailApproved(app.db, body.email.toLowerCase());
+    if (!approved) {
+      throw ApiError.forbidden("This email address is not approved for signup. Please contact the administrator.");
+    }
 
     const passwordHash = hashPartnerPassword(body.password);
     let partner;
