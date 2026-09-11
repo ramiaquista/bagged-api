@@ -7,7 +7,7 @@ import type { Position } from "../schemas/position.js";
 import { fetchAssetMetadata, fetchRecentSwaps } from "./solana/heliusClient.js";
 import { fetchUsdPrices } from "./solana/jupiterClient.js";
 import { mapHeliusSwapsToTrades, WSOL_MINT } from "./solana/mapTrades.js";
-import type { ChainProvider, DailyRealizedPnl, DailyRealizedPnlProvider } from "./types.js";
+import type { ChainProvider, DailyRealizedPnl, DailyRealizedPnlProvider, TokenTradeHistory, TradesProvider } from "./types.js";
 
 const DUST_QTY = 1e-9;
 
@@ -54,7 +54,7 @@ function round(value: number, decimals: number): number {
  * approximations (documented in detail in mapTrades.ts and resolveRugs's
  * doc comment).
  */
-export class SolanaProvider implements ChainProvider, DailyRealizedPnlProvider {
+export class SolanaProvider implements ChainProvider, DailyRealizedPnlProvider, TradesProvider {
   readonly chain: Chain = "solana";
 
   async getWalletPnl(address: string): Promise<WalletPnl> {
@@ -150,6 +150,49 @@ export class SolanaProvider implements ChainProvider, DailyRealizedPnlProvider {
     }
 
     return positions.sort((a, b) => b.value_usd - a.value_usd);
+  }
+
+  // TradesProvider implementation
+  async getWalletTrades(address: string): Promise<TokenTradeHistory[]> {
+    const { perToken } = await this.loadTokenPositions(address);
+    if (perToken === null) return [];
+
+    // Fetch metadata to get symbols
+    const mints = Array.from(perToken.keys());
+    const metadata = await fetchAssetMetadata(mints, config.HELIUS_API_KEY ?? "");
+
+    return Array.from(perToken.entries()).map(([mint, acc]) => {
+      const buyTrades = acc.trades.filter((t) => t.side === "buy");
+      const sellTrades = acc.trades.filter((t) => t.side === "sell");
+
+      const quantityBought = buyTrades.reduce((sum, t) => sum + t.quantity, 0);
+      const quantitySold = sellTrades.reduce((sum, t) => sum + t.quantity, 0);
+
+      // Calculate cost basis directly from buy trades
+      const costBasisUsd = buyTrades.reduce((sum, t) => sum + (t.quantity * t.priceUsd), 0);
+      const proceedsUsd = sellTrades.reduce((sum, t) => sum + (t.quantity * t.priceUsd), 0);
+
+      const lastTradeTimestamp = acc.trades.length > 0
+        ? acc.trades[acc.trades.length - 1]?.timestamp
+        : undefined;
+      const holdingDurationMs = lastTradeTimestamp
+        ? new Date().getTime() - new Date(lastTradeTimestamp).getTime()
+        : undefined;
+
+      const symbol = metadata.get(mint)?.content?.metadata?.symbol || mint.slice(0, 6);
+
+      return {
+        symbol,
+        tokenAddress: mint,
+        quantityBought: round(quantityBought, 6),
+        costBasisUsd: round(costBasisUsd, 2),
+        quantitySold: round(quantitySold, 6),
+        proceedsUsd: round(proceedsUsd, 2),
+        realizedPnlUsd: round(proceedsUsd - costBasisUsd, 2),
+        quantityHeld: round(acc.quantityHeld, 6),
+        holdingDurationMs,
+      };
+    });
   }
 
   /**
@@ -251,8 +294,16 @@ export class SolanaProvider implements ChainProvider, DailyRealizedPnlProvider {
     }
 
     const solPrices = await fetchUsdPrices([WSOL_MINT], config.JUPITER_API_BASE_URL);
-    console.error(`[Solana] SOL price: $${solPrices.get(WSOL_MINT) ?? "unknown"}`);
-    const solUsdPrice = solPrices.get(WSOL_MINT) ?? 0;
+    let solUsdPrice = solPrices.get(WSOL_MINT);
+    console.error(`[Solana] SOL price: $${solUsdPrice ?? "unknown"} (JUPITER_API_BASE_URL=${config.JUPITER_API_BASE_URL})`);
+
+    if (!solUsdPrice) {
+      // Fallback: Jupiter API failed. Use a conservative placeholder price.
+      // This prevents trades from being priced at $0, which would filter them all out.
+      // Note: these prices will be inaccurate, but at least trades will be visible for debugging.
+      console.error(`[Solana] WARNING: Failed to fetch SOL price from Jupiter API. Using fallback price of $1 USD/SOL.`);
+      solUsdPrice = 1; // Very low fallback to make inaccuracy obvious
+    }
 
     const rawTrades = mapHeliusSwapsToTrades(address, swaps, solUsdPrice);
 

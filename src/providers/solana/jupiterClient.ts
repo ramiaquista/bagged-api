@@ -40,20 +40,29 @@ export async function fetchUsdPrices(
 
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        console.error(`[Jupiter] Fetch failed for ${batch.length} mints: HTTP ${res.status} from ${url}`);
+        continue;
+      }
 
       const body = (await res.json()) as Record<string, JupiterPriceInfo | undefined>;
+      let pricesFound = 0;
       for (const mint of batch) {
         const price = body[mint]?.usdPrice;
         if (typeof price === "number" && Number.isFinite(price) && price >= 0) {
           result.set(mint, price);
+          pricesFound++;
         }
       }
-    } catch {
+      if (pricesFound < batch.length) {
+        console.warn(`[Jupiter] Got prices for ${pricesFound}/${batch.length} mints. Response keys: ${Object.keys(body).slice(0, 3).join(", ")}${Object.keys(body).length > 3 ? "..." : ""}`);
+      }
+    } catch (err) {
       // Network hiccup / rate limit / timeout: leave this batch's mints
       // unpriced. SolanaProvider treats "no live price" as a strong
       // rug/no-liquidity signal, not a request failure -- see resolveRugs's
       // doc comment for why that's actually the *more* reliable signal.
+      console.error(`[Jupiter] Fetch error for ${batch.slice(0, 2).join(", ")}...: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
   }
