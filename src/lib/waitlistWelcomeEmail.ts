@@ -59,20 +59,21 @@ export async function sendWaitlistWelcomeEmail(
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     }
     .header {
-      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
-      padding: 48px 32px;
+      background: #000000;
+      padding: 32px;
       text-align: center;
     }
-    .logo {
-      margin-bottom: 20px;
+    .banner {
+      margin-bottom: 24px;
     }
-    .logo img {
-      height: 48px;
-      width: auto;
+    .banner img {
+      max-width: 100%;
+      height: auto;
+      display: block;
     }
     .header h1 {
       color: white;
-      font-size: 28px;
+      font-size: 24px;
       font-weight: 700;
       margin-bottom: 8px;
       letter-spacing: -0.5px;
@@ -212,8 +213,8 @@ export async function sendWaitlistWelcomeEmail(
     <div class="container">
       <!-- Header -->
       <div class="header">
-        <div class="logo">
-          <img src="https://bagged.life/brand/logo-mark-96.png" alt="Bagged" style="height: 48px; width: auto;">
+        <div class="banner">
+          <img src="https://bagged.life/brand/logo-banner.png" alt="Bagged" style="max-width: 320px; height: auto;">
         </div>
         <h1>You're In</h1>
         <p class="header-subtitle">Early access to Bagged</p>
