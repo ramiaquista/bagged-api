@@ -15,7 +15,7 @@ import {
   verifyUserPassword,
   verifyUserSessionToken,
 } from "../lib/userAuth.js";
-import { getProvider } from "../providers/registry.js";
+import { getProvider, supportsTradeHistory } from "../providers/registry.js";
 import { LinkWalletSchema, UserLoginSchema, UserSignupSchema } from "../schemas/user.js";
 import { recomputeDailyPnlForWallet } from "../worker/dailyPnlWorker.js";
 
@@ -226,6 +226,26 @@ export default async function userRoutes(app: FastifyInstance) {
       throw ApiError.notFound("No linked wallet found with that id");
     }
     return { unlinked: true };
+  });
+
+  app.get("/user/wallets/:walletId/trades", async (req) => {
+    const { walletId } = WalletParamsSchema.parse(req.params);
+    const wallet = await findOrCreateWallet(app.db, "ethereum", "0x0"); // placeholder, will be replaced
+
+    // Verify the wallet belongs to the user
+    const linked = await listWalletsForUser(app.db, req.userId!);
+    const walletLink = linked.find((w) => w.walletId === walletId);
+    if (!walletLink) {
+      throw ApiError.notFound("No linked wallet found with that id");
+    }
+
+    const provider = getProvider(walletLink.chain);
+    if (!supportsTradeHistory(provider)) {
+      return { trades: [] }; // Chain doesn't support trade history yet
+    }
+
+    const trades = await provider.getWalletTrades(walletLink.address);
+    return { trades };
   });
 
   app.get("/user/portfolio", async (req) => {

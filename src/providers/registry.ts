@@ -2,6 +2,7 @@ import type { Chain } from "../schemas/chain.js";
 import { EvmProvider } from "./evm.js";
 import { SolanaProvider } from "./solana.js";
 import type { ChainProvider } from "./types.js";
+import { supportsTradeHistory } from "./types.js";
 
 const providers: Record<Chain, ChainProvider> = {
   solana: new SolanaProvider(),
@@ -13,3 +14,5 @@ const providers: Record<Chain, ChainProvider> = {
 export function getProvider(chain: Chain): ChainProvider {
   return providers[chain];
 }
+
+export { supportsTradeHistory };

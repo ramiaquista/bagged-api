@@ -10,7 +10,7 @@ import { buildTradesFromTransfers } from "./evmTradeBuilder.js";
 import { getLaunchpadResolver } from "./launchpads/registry.js";
 import type { LaunchpadResolver } from "./launchpads/types.js";
 import { mockPnlFor, mockPositionsFor } from "./mockData.js";
-import type { ChainProvider } from "./types.js";
+import type { ChainProvider, TradesProvider, TokenTradeHistory } from "./types.js";
 
 export interface EvmProviderDeps {
   /** Injectable for tests; defaults to a real AlchemyHttpClient built from config.ALCHEMY_API_KEY. */
@@ -65,7 +65,7 @@ function round2(n: number): number {
  *     numbers. Silently substituting fake-but-plausible PnL for a real
  *     wallet is worse than a visible error for a financial product.
  */
-export class EvmProvider implements ChainProvider {
+export class EvmProvider implements ChainProvider, TradesProvider {
   private readonly alchemy?: AlchemyClient;
   private readonly launchpad: LaunchpadResolver;
 
@@ -134,6 +134,47 @@ export class EvmProvider implements ChainProvider {
       });
   }
 
+  // TradesProvider implementation
+  async getWalletTrades(address: string): Promise<TokenTradeHistory[]> {
+    if (!isEvmAddress(address) || !this.alchemy) {
+      return [];
+    }
+
+    const { positions, rawTrades, tradesByToken, symbolByToken, firstTradeTimestamp } = await this.loadPortfolioWithTrades(address, this.alchemy);
+
+    return positions.map((p) => {
+      const tokenTrades = tradesByToken.get(p.tokenAddress) || [];
+      const quantityBought = tokenTrades
+        .filter((t) => t.side === "buy")
+        .reduce((sum, t) => sum + t.quantity, 0);
+      const quantitySold = tokenTrades
+        .filter((t) => t.side === "sell")
+        .reduce((sum, t) => sum + t.quantity, 0);
+      const proceedsUsd = tokenTrades
+        .filter((t) => t.side === "sell")
+        .reduce((sum, t) => sum + t.quantity * t.priceUsd, 0);
+
+      const lastTradeTimestamp = tokenTrades.length > 0
+        ? tokenTrades[tokenTrades.length - 1]?.timestamp
+        : firstTradeTimestamp;
+      const holdingDurationMs = lastTradeTimestamp
+        ? new Date().getTime() - new Date(lastTradeTimestamp).getTime()
+        : undefined;
+
+      return {
+        symbol: p.symbol,
+        tokenAddress: p.tokenAddress,
+        quantityBought: round2(quantityBought),
+        costBasisUsd: round2(p.costBasis.costBasisUsd),
+        quantitySold: round2(quantitySold),
+        proceedsUsd: round2(proceedsUsd),
+        realizedPnlUsd: round2(p.costBasis.realizedPnlUsd),
+        quantityHeld: round2(p.costBasis.quantityHeld),
+        holdingDurationMs,
+      };
+    });
+  }
+
   private async loadPortfolio(address: string, alchemy: AlchemyClient) {
     let transfers;
     let nativePriceUsd;
@@ -189,5 +230,66 @@ export class EvmProvider implements ChainProvider {
     }
 
     return { positions, washResult, rugResult };
+  }
+
+  private async loadPortfolioWithTrades(address: string, alchemy: AlchemyClient) {
+    let transfers;
+    let nativePriceUsd;
+    try {
+      [transfers, nativePriceUsd] = await Promise.all([
+        alchemy.getAllTransfers(address),
+        alchemy.getNativePriceUsd(),
+      ]);
+    } catch (err) {
+      throw new ApiError(
+        502,
+        "upstream_provider_error",
+        `Failed to fetch ${this.chain} wallet data from Alchemy: ${(err as Error).message}`,
+      );
+    }
+
+    const rawTrades = buildTradesFromTransfers(address, this.chain, transfers, nativePriceUsd, this.launchpad);
+
+    const washResult = filterWashTrades(rawTrades);
+    const rugResult = resolveRugs(washResult.cleanTrades);
+
+    const byToken = new Map<string, Trade[]>();
+    for (const t of washResult.cleanTrades) {
+      const arr = byToken.get(t.tokenMintOrAddress);
+      if (arr) arr.push(t);
+      else byToken.set(t.tokenMintOrAddress, [t]);
+    }
+
+    const symbolByToken = new Map<string, string>();
+    for (const t of transfers) {
+      if (t.tokenAddress && t.asset && !symbolByToken.has(t.tokenAddress)) {
+        symbolByToken.set(t.tokenAddress, t.asset);
+      }
+    }
+
+    let firstTradeTimestamp: string | undefined;
+    const positions: TokenPosition[] = [];
+    for (const [tokenAddress, tokenTrades] of byToken) {
+      const costBasis = computeCostBasis(tokenTrades);
+      let priceUsd: number | null = null;
+      if (costBasis.quantityHeld > 0) {
+        try {
+          priceUsd = await alchemy.getTokenPriceUsd(tokenAddress);
+        } catch {
+          priceUsd = null;
+        }
+      }
+      if (tokenTrades.length > 0 && !firstTradeTimestamp) {
+        firstTradeTimestamp = tokenTrades[0]?.timestamp ?? undefined;
+      }
+      positions.push({
+        tokenAddress,
+        symbol: symbolByToken.get(tokenAddress) ?? tokenAddress,
+        costBasis,
+        priceUsd,
+      });
+    }
+
+    return { positions, washResult, rugResult, rawTrades, tradesByToken: byToken, symbolByToken, firstTradeTimestamp };
   }
 }

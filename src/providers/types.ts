@@ -47,3 +47,30 @@ export function supportsDailyRealizedPnl(
 ): provider is ChainProvider & DailyRealizedPnlProvider {
   return typeof (provider as Partial<DailyRealizedPnlProvider>).getWalletDailyRealizedPnl === "function";
 }
+
+/**
+ * Optional third capability: detailed trade history per token.
+ * Returns all trades for a wallet grouped by token with cost basis info.
+ */
+export interface TradesProvider {
+  getWalletTrades(address: string): Promise<TokenTradeHistory[]>;
+}
+
+export interface TokenTradeHistory {
+  symbol: string;
+  tokenAddress: string;
+  quantityBought: number;
+  costBasisUsd: number;
+  quantitySold: number;
+  proceedsUsd: number;
+  realizedPnlUsd: number;
+  quantityHeld: number;
+  holdingDurationMs?: number;
+}
+
+/** True when a provider also implements the optional trades-history capability. */
+export function supportsTradeHistory(
+  provider: ChainProvider,
+): provider is ChainProvider & TradesProvider {
+  return typeof (provider as Partial<TradesProvider>).getWalletTrades === "function";
+}
