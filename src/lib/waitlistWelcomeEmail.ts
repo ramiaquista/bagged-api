@@ -64,8 +64,11 @@ export async function sendWaitlistWelcomeEmail(
       text-align: center;
     }
     .logo {
-      font-size: 48px;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
+    }
+    .logo img {
+      height: 48px;
+      width: auto;
     }
     .header h1 {
       color: white;
@@ -209,7 +212,9 @@ export async function sendWaitlistWelcomeEmail(
     <div class="container">
       <!-- Header -->
       <div class="header">
-        <div class="logo">📊</div>
+        <div class="logo">
+          <img src="https://bagged.life/brand/logo-mark-96.png" alt="Bagged" style="height: 48px; width: auto;">
+        </div>
         <h1>You're In</h1>
         <p class="header-subtitle">Early access to Bagged</p>
       </div>
