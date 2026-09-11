@@ -2,6 +2,7 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
+import { readFileSync } from "fs";
 import { resolve } from "path";
 import { ZodError } from "zod";
 import { config } from "./config.js";
