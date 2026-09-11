@@ -1,15 +1,12 @@
 import type { FastifyBaseLogger } from "fastify";
+import { Resend } from "resend";
 import { config } from "../config.js";
-
-export interface WaitlistWelcomeOptions {
-  /** Injectable for tests */
-  fetchImpl?: typeof fetch;
-}
 
 /**
  * Sends a professional welcome email to someone who joins the waitlist.
  * Includes the Bagged logo and marketing content about the platform.
  *
+ * Uses the Resend SDK (https://resend.com) for reliable email delivery.
  * Called after waitlist signup is committed, so failures don't affect the signup.
  * Gracefully degrades if RESEND_API_KEY is not configured.
  *
@@ -18,14 +15,13 @@ export interface WaitlistWelcomeOptions {
 export async function sendWaitlistWelcomeEmail(
   email: string,
   logger: FastifyBaseLogger,
-  options: WaitlistWelcomeOptions = {},
 ): Promise<boolean> {
   if (!config.RESEND_API_KEY) {
     logger.debug({ email }, "RESEND_API_KEY not configured -- skipping welcome email");
     return false;
   }
 
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const resend = new Resend(config.RESEND_API_KEY);
 
   // Professional HTML email template with logo and marketing content
   const htmlContent = `
@@ -247,31 +243,23 @@ export async function sendWaitlistWelcomeEmail(
   `.trim();
 
   try {
-    const res = await fetchImpl("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: "Bagged <hello@bagged.life>",
-        to: [email],
-        subject: "Welcome to Bagged — Thanks for joining the waitlist!",
-        html: htmlContent,
-        reply_to: "hello@bagged.life",
-      }),
+    const result = await resend.emails.send({
+      from: "Bagged <hello@bagged.life>",
+      to: email,
+      subject: "Welcome to Bagged — Thanks for joining the waitlist!",
+      html: htmlContent,
+      replyTo: "hello@bagged.life",
     });
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
+    if (result.error) {
       logger.warn(
-        { email, status: res.status, body },
+        { email, error: result.error },
         "waitlist welcome email failed to send",
       );
       return false;
     }
 
-    logger.info({ email }, "waitlist welcome email sent successfully");
+    logger.info({ email, messageId: result.data?.id }, "waitlist welcome email sent successfully");
     return true;
   } catch (err) {
     logger.warn(

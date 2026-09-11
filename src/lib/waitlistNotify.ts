@@ -1,14 +1,10 @@
 import type { FastifyBaseLogger } from "fastify";
+import { Resend } from "resend";
 import { config } from "../config.js";
 
 export interface WaitlistNotifySignup {
   email: string;
   note?: string;
-}
-
-export interface WaitlistNotifyOptions {
-  /** Injectable for tests -- never make a real network call from a test. */
-  fetchImpl?: typeof fetch;
 }
 
 /**
@@ -21,11 +17,9 @@ export interface WaitlistNotifyOptions {
  * the only way to notice a new signup was to remember to poll
  * GET /waitlist.
  *
- * Sent via Resend's HTTP API (https://resend.com) with a plain fetch call
- * -- no SMTP, no new npm dependency, same fetchImpl-injectable idiom as
- * src/worker/deliver.ts's webhook delivery. `reply_to` is set to the
- * signer-upper's own address, so replying to the notification email goes
- * straight to them.
+ * Sent via the Resend SDK (https://resend.com) for reliable email delivery.
+ * `reply_to` is set to the signer-upper's own address, so replying to the
+ * notification email goes straight to them.
  *
  * Fully optional and never fails the signup it's attached to: with no
  * RESEND_API_KEY configured this no-ops (logs once at warn, never
@@ -41,7 +35,6 @@ export interface WaitlistNotifyOptions {
 export async function notifyWaitlistSignup(
   signup: WaitlistNotifySignup,
   logger: FastifyBaseLogger,
-  options: WaitlistNotifyOptions = {},
 ): Promise<boolean> {
   if (!config.RESEND_API_KEY) {
     logger.warn(
@@ -51,7 +44,7 @@ export async function notifyWaitlistSignup(
     return false;
   }
 
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const resend = new Resend(config.RESEND_API_KEY);
   const to = config.WAITLIST_NOTIFY_EMAIL;
   const text = [
     `New Bagged waitlist signup: ${signup.email}`,
@@ -64,31 +57,23 @@ export async function notifyWaitlistSignup(
   ].join("\n");
 
   try {
-    const res = await fetchImpl("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: "Bagged Waitlist <onboarding@resend.dev>",
-        to: [to],
-        reply_to: signup.email,
-        subject: `New waitlist signup: ${signup.email}`,
-        text,
-      }),
+    const result = await resend.emails.send({
+      from: "Bagged Waitlist <onboarding@resend.dev>",
+      to,
+      replyTo: signup.email,
+      subject: `New waitlist signup: ${signup.email}`,
+      text,
     });
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
+    if (result.error) {
       logger.warn(
-        { email: signup.email, status: res.status, body },
+        { email: signup.email, error: result.error },
         "waitlist signup notification email failed to send",
       );
       return false;
     }
 
-    logger.info({ email: signup.email, to }, "waitlist signup notification email sent");
+    logger.info({ email: signup.email, to, messageId: result.data?.id }, "waitlist signup notification email sent");
     return true;
   } catch (err) {
     logger.warn(
