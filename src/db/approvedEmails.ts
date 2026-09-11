@@ -1,9 +1,10 @@
 import type { Pool } from "pg";
 
 export interface ApprovedEmail {
+  id: string;
   email: string;
   approved_by: string;
-  approved_at: string;
+  created_at: string;
   notes: string | null;
 }
 
@@ -20,7 +21,7 @@ export async function isEmailApproved(db: Pool, email: string): Promise<boolean>
  */
 export async function getApprovedEmails(db: Pool): Promise<ApprovedEmail[]> {
   const result = await db.query(
-    "SELECT email, approved_by, approved_at, notes FROM approved_emails ORDER BY approved_at DESC"
+    "SELECT id, email, approved_by, created_at, notes FROM approved_emails ORDER BY created_at DESC"
   );
   return result.rows as ApprovedEmail[];
 }
@@ -30,7 +31,7 @@ export async function getApprovedEmails(db: Pool): Promise<ApprovedEmail[]> {
  */
 export async function approveEmail(db: Pool, email: string, approvedBy: string, notes?: string): Promise<void> {
   await db.query(
-    "INSERT INTO approved_emails (email, approved_by, notes) VALUES ($1, $2, $3) ON CONFLICT (email) DO UPDATE SET approved_by = $2, notes = $3, approved_at = CURRENT_TIMESTAMP",
+    "INSERT INTO approved_emails (email, approved_by, notes) VALUES ($1, $2, $3) ON CONFLICT (email) DO UPDATE SET approved_by = $2, notes = $3",
     [email.toLowerCase(), approvedBy, notes ?? null]
   );
 }
