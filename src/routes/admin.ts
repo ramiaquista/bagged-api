@@ -3,7 +3,7 @@ import { z } from "zod";
 import { config } from "../config.js";
 import { createApiKey, listApiKeys, revokeApiKey, rotateApiKey } from "../db/apiKeys.js";
 import { approveEmail, getApprovedEmails, revokeEmailApproval } from "../db/approvedEmails.js";
-import { countWaitlistEntries, listWaitlistEntries } from "../db/waitlist.js";
+import { countWaitlistEntries, deleteWaitlistEntry, listWaitlistEntries } from "../db/waitlist.js";
 import { listWebhooks } from "../db/webhooks.js";
 import {
   ADMIN_SESSION_COOKIE,
@@ -177,6 +177,15 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.get("/admin/webhooks", async () => ({ webhooks: await listWebhooks(app.db) }));
 
   app.get("/admin/waitlist", async () => ({ entries: await listWaitlistEntries(app.db) }));
+
+  app.post("/admin/waitlist/:email/delete", async (req) => {
+    const { email } = req.params as { email: string };
+    const deleted = await deleteWaitlistEntry(app.db, email.toLowerCase());
+    if (!deleted) {
+      throw ApiError.notFound("Waitlist entry not found");
+    }
+    return { deleted: true, email: email.toLowerCase() };
+  });
 
   // Approved emails management -- control who can sign up for /app and /b2b-dashboard
   app.get("/admin/approved-emails", async () => {

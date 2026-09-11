@@ -50,3 +50,11 @@ export async function countWaitlistEntries(db: Pool): Promise<number> {
   const result = await db.query<{ count: string }>(`select count(*)::text as count from waitlist`);
   return Number(result.rows[0]?.count ?? "0");
 }
+
+/**
+ * Delete a waitlist entry by email (admin action)
+ */
+export async function deleteWaitlistEntry(db: Pool, email: string): Promise<boolean> {
+  const result = await db.query(`delete from waitlist where email = $1`, [email.toLowerCase()]);
+  return (result.rowCount ?? 0) > 0;
+}
