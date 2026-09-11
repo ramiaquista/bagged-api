@@ -44,6 +44,7 @@ interface IncompleteSell {
  */
 function parseSwapEventFromLogs(
   logs: Array<{ topics: string[]; data: string; address: string }>,
+  tokenAddress?: string,
 ): { amount0: number; amount1: number } | null {
   try {
     // Possible Swap event signatures (different implementations)
@@ -51,6 +52,17 @@ function parseSwapEventFromLogs(
       "0x71d78e8f4fbff2dff101e66d247c5ab3e847a10786ccd2f1cfc422a25b1b6c5f", // Uniswap V4 PoolManager
       "0xc42079f94a6350d7e6235f29174924f7e02e8631e695c17466f7d159d07f4119", // Uniswap V3
     ];
+
+    // DEBUG: Log all events to identify the actual signatures
+    const uniqueSigs = new Set<string>();
+    for (const log of logs) {
+      if (log.topics[0]) {
+        uniqueSigs.add(log.topics[0]);
+      }
+    }
+    if (uniqueSigs.size > 0) {
+      console.log(`[evmTradeBuilder] Event signatures in receipt: ${Array.from(uniqueSigs).join(", ")}`);
+    }
 
     for (const log of logs) {
       if (!log.topics[0] || !SWAP_SIGS.includes(log.topics[0])) continue;
@@ -247,7 +259,7 @@ export async function buildTradesFromTransfers(
         const receipt = await alchemy.getTransactionReceipt(incompleteSell.hash);
 
         if (receipt && receipt.logs) {
-          const swapAmounts = parseSwapEventFromLogs(receipt.logs);
+          const swapAmounts = parseSwapEventFromLogs(receipt.logs, incompleteSell.tokenAddress);
 
           if (swapAmounts && swapAmounts.amount1 > 0) {
             // Assume amount1 is native currency (proceeds)
