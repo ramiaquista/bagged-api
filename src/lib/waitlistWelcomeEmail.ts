@@ -247,7 +247,7 @@ export async function sendWaitlistWelcomeEmail(
 
   try {
     const result = await resend.emails.send({
-      from: "Bagged <hello@bagged.life>",
+      from: "Bagged <onboarding@resend.dev>",
       to: email,
       subject: "Welcome to Bagged — Thanks for joining the waitlist!",
       html: htmlContent,
