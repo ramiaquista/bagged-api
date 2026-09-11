@@ -2,6 +2,8 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { ZodError } from "zod";
 import { config } from "./config.js";
 import { buildCorsOriginOption } from "./lib/cors.js";
@@ -85,6 +87,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   // After apiKeyPlugin: needs req.apiKey (set onRequest) to know which key
   // to attribute a response to -- see that plugin's own comment.
   await app.register(requestLogPlugin);
+
+  // OpenAPI spec endpoint - serves the YAML file for documentation tools
+  app.get("/openapi.yaml", async () => {
+    try {
+      const specPath = resolve(process.cwd(), "openapi.yaml");
+      return readFileSync(specPath, "utf-8");
+    } catch (err) {
+      return { error: "OpenAPI spec not found" };
+    }
+  });
 
   await app.register(healthRoutes);
   await app.register(cardRoutes);

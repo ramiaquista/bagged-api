@@ -86,6 +86,7 @@ export async function recomputeDailyPnlForWallet(
   if (!supportsDailyRealizedPnl(provider)) return;
 
   const days = await provider.getWalletDailyRealizedPnl(address);
+  console.error(`[Worker] Storing ${days.length} daily PnL rows for wallet ${walletId} (${chain} ${address})`);
   await replaceDailyRealizedPnl(app.db, walletId, days);
 }
 

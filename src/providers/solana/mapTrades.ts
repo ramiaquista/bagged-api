@@ -65,6 +65,7 @@ export function mapHeliusSwapsToTrades(
   solUsdPrice: number,
 ): Trade[] {
   const trades: Trade[] = [];
+  console.error(`[mapTrades] Processing ${transactions.length} txs with SOL price=$${solUsdPrice}`);
 
   for (const tx of transactions) {
     if (tx.transactionError) continue;
@@ -105,8 +106,14 @@ export function mapHeliusSwapsToTrades(
     const baseEntries = [...netByMint.entries()].filter(
       ([, qty]) => Math.abs(qty) > DUST_QTY,
     );
-    if (baseEntries.length === 0) continue;
-    if (Math.abs(quoteUsd) < 1e-9) continue; // no priceable quote leg -- see limitation 1
+    if (baseEntries.length === 0) {
+      console.error(`[mapTrades] ${tx.type} ${tx.signature}: no base entries`);
+      continue;
+    }
+    if (Math.abs(quoteUsd) < 1e-9) {
+      console.error(`[mapTrades] ${tx.type} ${tx.signature}: quoteUsd too small (${quoteUsd})`);
+      continue; // no priceable quote leg -- see limitation 1
+    }
 
     const perLegQuoteUsd = quoteUsd / baseEntries.length;
     const isoTimestamp = new Date(tx.timestamp * 1000).toISOString();

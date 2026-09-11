@@ -191,9 +191,19 @@ export class SolanaProvider implements ChainProvider, DailyRealizedPnlProvider {
       computeCostBasis(acc.trades, onRealize);
     }
 
-    return [...byDay.entries()]
+    const result = [...byDay.entries()]
       .map(([day, v]) => ({ day, realizedPnlUsd: round(v.realizedPnlUsd, 2), tradeCount: v.tradeCount }))
       .sort((a, b) => a.day.localeCompare(b.day));
+
+    console.error(`[Solana] Daily PnL for ${address}: ${result.length} days calculated from ${perToken.size} tokens`);
+    if (result.length === 0 && perToken.size > 0) {
+      console.error(`[Solana] WARNING: ${perToken.size} tokens but 0 days with realized PnL`);
+      for (const [mint, acc] of perToken.entries()) {
+        console.error(`[Solana]   ${mint}: ${acc.trades.length} trades, realized=${acc.realizedPnlUsd}, cost=${acc.costBasisUsd}`);
+      }
+    }
+
+    return result;
   }
 
   private zeroPnl(address: string): WalletPnl {
@@ -222,21 +232,26 @@ export class SolanaProvider implements ChainProvider, DailyRealizedPnlProvider {
     address: string,
   ): Promise<{ perToken: Map<string, TokenAccumulator> | null; washExcluded: number }> {
     if (!config.HELIUS_API_KEY) {
+      console.warn(`[Solana] No HELIUS_API_KEY configured for address ${address}`);
       return { perToken: null, washExcluded: 0 };
     }
 
     let swaps;
     try {
       swaps = await fetchRecentSwaps(address, config.HELIUS_API_KEY);
-    } catch {
+      console.error(`[Solana] Helius returned ${swaps.length} swaps for ${address}`);
+    } catch (err) {
+      console.error(`[Solana] Helius fetch failed for ${address}:`, err);
       return { perToken: null, washExcluded: 0 };
     }
 
     if (swaps.length === 0) {
+      console.error(`[Solana] No swaps found for ${address}`);
       return { perToken: new Map(), washExcluded: 0 };
     }
 
     const solPrices = await fetchUsdPrices([WSOL_MINT], config.JUPITER_API_BASE_URL);
+    console.error(`[Solana] SOL price: $${solPrices.get(WSOL_MINT) ?? "unknown"}`);
     const solUsdPrice = solPrices.get(WSOL_MINT) ?? 0;
 
     const rawTrades = mapHeliusSwapsToTrades(address, swaps, solUsdPrice);

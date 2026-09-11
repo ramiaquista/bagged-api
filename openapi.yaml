@@ -1,0 +1,864 @@
+openapi: 3.0.0
+info:
+  title: Bagged PnL API
+  description: |
+    Real-time P&L tracking and analytics for crypto wallets.
+
+    ## Authentication
+
+    Use your API key via the `x-api-key` header:
+    ```
+    curl -H "x-api-key: bg_your_api_key_here" https://api.bagged.life/wallet/YOUR_WALLET_ADDRESS/pnl
+    ```
+
+    Get a free API key on [bagged.life](https://bagged.life/#cta)
+
+    ## Rate Limits
+
+    - **Free tier**: 50,000 requests/month (~1,600/day)
+    - **Builder tier**: 500,000 requests/month (~16,000/day)
+    - **Growth tier**: 5,000,000 requests/month (~160,000/day)
+
+    Rate limit headers:
+    - `X-RateLimit-Limit`: Requests allowed in the window
+    - `X-RateLimit-Remaining`: Requests remaining
+    - `X-RateLimit-Reset`: Unix timestamp when limit resets
+
+    ## Chains
+
+    Supported blockchains:
+    - `solana` - Solana mainnet
+    - `ethereum` - Ethereum mainnet
+    - `bnb` - BNB Chain
+
+    ## Error Codes
+
+    | Code | Meaning |
+    |------|---------|
+    | 200 | Success |
+    | 400 | Bad request (invalid parameters) |
+    | 401 | Unauthorized (missing/invalid API key) |
+    | 404 | Not found (wallet/address doesn't exist) |
+    | 429 | Rate limit exceeded |
+    | 500 | Server error |
+
+  version: 1.0.0
+  contact:
+    name: Bagged Support
+    email: business@bagged.life
+    url: https://bagged.life
+servers:
+  - url: https://api.bagged.life
+    description: Production API
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Public API
+    description: Public endpoints for fetching wallet PnL and positions
+  - name: Partner Dashboard
+    description: Self-serve partner/developer dashboard endpoints
+  - name: Health
+    description: System health and status
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns API health status
+      operationId: getHealth
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  time:
+                    type: string
+                    format: date-time
+                    example: '2026-09-11T15:30:00.000Z'
+
+  /wallet/{address}/pnl:
+    get:
+      tags:
+        - Public API
+      summary: Get wallet P&L summary
+      description: |
+        Fetch comprehensive P&L metrics for a wallet.
+
+        Returns realized and unrealized P&L, open positions count, and rug/wash trade statistics.
+      operationId: getWalletPnl
+      parameters:
+        - name: address
+          in: path
+          required: true
+          description: Wallet address (format varies by chain)
+          schema:
+            type: string
+            example: '3gQPWzizoKG4hH6ZuLEgCTScPwTHbBeQMiQHHuAAsdkD'
+        - name: chain
+          in: query
+          required: false
+          description: Blockchain (default solana)
+          schema:
+            type: string
+            enum: [solana, ethereum, bnb]
+            default: solana
+      responses:
+        '200':
+          description: P&L data retrieved successfully
+          headers:
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+              description: Requests allowed in window
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+              description: Requests remaining
+            X-RateLimit-Reset:
+              schema:
+                type: integer
+              description: Unix timestamp when limit resets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletPnl'
+        '400':
+          description: Invalid address or chain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Wallet not found or has no history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - ApiKeyAuth: []
+
+  /wallet/{address}/positions:
+    get:
+      tags:
+        - Public API
+      summary: Get wallet token positions
+      description: |
+        Fetch current token positions for a wallet.
+
+        Returns quantity held, cost basis, unrealized P&L, and current USD value for each position.
+      operationId: getWalletPositions
+      parameters:
+        - name: address
+          in: path
+          required: true
+          description: Wallet address
+          schema:
+            type: string
+        - name: chain
+          in: query
+          required: false
+          description: Blockchain (default solana)
+          schema:
+            type: string
+            enum: [solana, ethereum, bnb]
+            default: solana
+      responses:
+        '200':
+          description: Positions retrieved successfully
+          headers:
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+            X-RateLimit-Reset:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  positions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Position'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+      security:
+        - ApiKeyAuth: []
+
+  /wallet/{address}/stream:
+    get:
+      tags:
+        - Public API
+      summary: WebSocket stream for wallet updates
+      description: |
+        Real-time WebSocket stream for wallet P&L updates.
+
+        Connects via WebSocket protocol and streams P&L changes as they occur.
+      operationId: streamWalletPnl
+      parameters:
+        - name: address
+          in: path
+          required: true
+          description: Wallet address
+          schema:
+            type: string
+        - name: chain
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [solana, ethereum, bnb]
+            default: solana
+      responses:
+        '101':
+          description: WebSocket connection upgraded
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+      security:
+        - ApiKeyAuth: []
+
+  /wallets/batch:
+    post:
+      tags:
+        - Public API
+      summary: Batch fetch P&L for multiple wallets
+      description: |
+        Get P&L data for up to 100 wallets in a single request.
+
+        More efficient than individual calls for multiple wallets.
+      operationId: batchWalletPnl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - wallets
+              properties:
+                wallets:
+                  type: array
+                  maxItems: 100
+                  items:
+                    type: object
+                    required:
+                      - address
+                    properties:
+                      address:
+                        type: string
+                      chain:
+                        type: string
+                        enum: [solana, ethereum, bnb]
+                        default: solana
+      responses:
+        '200':
+          description: Batch P&L data retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/WalletPnl'
+                        - type: object
+                          properties:
+                            address:
+                              type: string
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+      security:
+        - ApiKeyAuth: []
+
+  /leaderboard:
+    get:
+      tags:
+        - Public API
+      summary: Top performing wallets
+      description: Leaderboard of top-performing wallets by P&L
+      operationId: getLeaderboard
+      parameters:
+        - name: chain
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [solana, ethereum, bnb]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: range
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [7d, 30d, all]
+            default: 30d
+      responses:
+        '200':
+          description: Leaderboard data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wallets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        address:
+                          type: string
+                        chain:
+                          type: string
+                        realizedPnlUsd:
+                          type: number
+                        unrealizedPnlUsd:
+                          type: number
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+      security:
+        - ApiKeyAuth: []
+
+  /partner/signup:
+    post:
+      tags:
+        - Partner Dashboard
+      summary: Create partner account
+      description: |
+        Sign up as an API partner. Creates account and issues free-tier API key.
+
+        Rate limited: 5 requests per minute per IP.
+      operationId: partnerSignup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                companyName:
+                  type: string
+      responses:
+        '201':
+          description: Account created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  partner:
+                    $ref: '#/components/schemas/Partner'
+                  apiKey:
+                    type: string
+                    description: Plaintext API key - shown only once
+                    example: bg_0123456789abcdef0123456789abcdef01234567
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /partner/login:
+    post:
+      tags:
+        - Partner Dashboard
+      summary: Partner login
+      description: |
+        Authenticate as a partner. Returns session cookie.
+
+        Rate limited: 10 requests per minute per IP.
+      operationId: partnerLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authenticated:
+                    type: boolean
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /partner/me:
+    get:
+      tags:
+        - Partner Dashboard
+      summary: Get current partner profile
+      description: Returns authenticated partner's profile information
+      operationId: getPartnerProfile
+      responses:
+        '200':
+          description: Partner profile retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  partner:
+                    $ref: '#/components/schemas/Partner'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+      security:
+        - SessionAuth: []
+
+  /partner/api-keys:
+    get:
+      tags:
+        - Partner Dashboard
+      summary: List partner API keys
+      description: Lists all API keys for the authenticated partner
+      operationId: listPartnerApiKeys
+      responses:
+        '200':
+          description: API keys retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apiKeys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiKeyInfo'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+      security:
+        - SessionAuth: []
+
+    post:
+      tags:
+        - Partner Dashboard
+      summary: Create new API key
+      description: Issues a new API key for the authenticated partner
+      operationId: createPartnerApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tier
+              properties:
+                tier:
+                  type: string
+                  enum: [free, builder, growth]
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apiKey:
+                    $ref: '#/components/schemas/ApiKeyInfo'
+                  plaintext:
+                    type: string
+                    description: Plaintext key - shown only once
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+      security:
+        - SessionAuth: []
+
+  /partner/api-keys/{keyId}/rotate:
+    post:
+      tags:
+        - Partner Dashboard
+      summary: Rotate API key
+      description: Invalidates old key and issues a new one
+      operationId: rotatePartnerApiKey
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Key rotated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  newKey:
+                    $ref: '#/components/schemas/ApiKeyInfo'
+                  plaintext:
+                    type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          description: Key does not belong to this partner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - SessionAuth: []
+
+  /partner/api-keys/{keyId}/revoke:
+    post:
+      tags:
+        - Partner Dashboard
+      summary: Revoke API key
+      description: Permanently disables an API key
+      operationId: revokePartnerApiKey
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Key revoked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      security:
+        - SessionAuth: []
+
+  /partner/usage:
+    get:
+      tags:
+        - Partner Dashboard
+      summary: Get API usage
+      description: Returns current usage statistics for all partner API keys
+      operationId: getPartnerUsage
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [today, 7d, 30d]
+            default: 30d
+      responses:
+        '200':
+          description: Usage data retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalRequests:
+                    type: integer
+                  limit:
+                    type: integer
+                  remaining:
+                    type: integer
+                  resetAt:
+                    type: string
+                    format: date-time
+                  byKey:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        keyId:
+                          type: string
+                        requests:
+                          type: integer
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+      security:
+        - SessionAuth: []
+
+  /partner/logs:
+    get:
+      tags:
+        - Partner Dashboard
+      summary: Get request logs
+      description: Returns recent API request logs for debugging
+      operationId: getPartnerLogs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Logs retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        timestamp:
+                          type: string
+                          format: date-time
+                        method:
+                          type: string
+                          enum: [GET, POST, PUT, DELETE]
+                        path:
+                          type: string
+                        statusCode:
+                          type: integer
+                        responseTimeMs:
+                          type: number
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+      security:
+        - SessionAuth: []
+
+components:
+  schemas:
+    WalletPnl:
+      type: object
+      properties:
+        wallet:
+          type: string
+          description: Wallet address
+        chain:
+          type: string
+          enum: [solana, ethereum, bnb]
+        realizedPnlUsd:
+          type: number
+          description: Realized P&L in USD (from closed positions)
+          example: 1234.56
+        unrealizedPnlUsd:
+          type: number
+          description: Unrealized P&L in USD (from open positions)
+          example: -456.78
+        positionsOpen:
+          type: integer
+          description: Number of open positions
+          example: 5
+        washTradesExcluded:
+          type: integer
+          description: Count of filtered wash trades
+        rugsResolved:
+          type: integer
+          description: Count of rug-pulled tokens identified
+        asOf:
+          type: string
+          format: date-time
+          description: Timestamp of latest data
+
+    Position:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Token symbol/name
+          example: SOL
+        mintOrAddress:
+          type: string
+          description: Token mint address
+        quantity:
+          type: number
+          description: Amount held
+        valueSld:
+          type: number
+          description: Current USD value
+        costBasisUsd:
+          type: number
+          description: Total cost basis in USD
+        unrealizedPnlUsd:
+          type: number
+          description: Unrealized P&L in USD
+        unrealizedPnlPct:
+          type: number
+          description: Unrealized P&L as percentage
+          example: 25.5
+
+    Partner:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        companyName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ApiKeyInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        tier:
+          type: string
+          enum: [free, builder, growth, enterprise]
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null if key is active
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+        code:
+          type: string
+          description: Error code
+        details:
+          type: object
+          description: Additional error details
+
+  responses:
+    BadRequestError:
+      description: Bad request - invalid parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    UnauthorizedError:
+      description: Unauthorized - missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    ForbiddenError:
+      description: Forbidden - insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    RateLimitError:
+      description: Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+            example: 0
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+            description: Unix timestamp
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: API key for public endpoints
+
+    SessionAuth:
+      type: apiKey
+      in: cookie
+      name: bagged_partner_session
+      description: Session cookie for partner dashboard
