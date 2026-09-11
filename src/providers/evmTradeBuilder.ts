@@ -49,6 +49,7 @@ function parseSwapEventFromLogs(
   try {
     // Possible Swap event signatures (different implementations)
     const SWAP_SIGS = [
+      "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67", // hood.fun bonding curve Swap
       "0x71d78e8f4fbff2dff101e66d247c5ab3e847a10786ccd2f1cfc422a25b1b6c5f", // Uniswap V4 PoolManager
       "0xc42079f94a6350d7e6235f29174924f7e02e8631e695c17466f7d159d07f4119", // Uniswap V3
     ];
