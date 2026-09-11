@@ -32,23 +32,56 @@ interface IncompleteSell {
 }
 
 /**
- * Calculate swap output using constant product formula:
- * For a swap selling tokenOut for nativeIn:
- * output = (reserveIn * amountIn * 997) / (reserveOut * 1000 + amountIn * 997)
+ * Parse Uniswap V4 Swap event from transaction logs.
  *
- * This approximates Uniswap V3/V4 accounting for the 0.3% fee (997/1000).
+ * Swap event (PoolManager): Swap(address indexed sender, int256 amount0Delta, int256 amount1Delta, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)
+ * Topic: 0x71d78e8f4fbff2dff101e66d247c5ab3e847a10786ccd2f1cfc422a25b1b6c5f
+ *
+ * For Robinhood Chain / hood.fun:
+ * - amount0Delta: change in token0 (positive = into pool, negative = out of pool)
+ * - amount1Delta: change in token1
+ * We extract the deltas to get actual swap amounts.
  */
-function calculateSwapOutput(
-  amountIn: number,
-  reserveOut: number,
-  reserveIn: number,
-  feePercentage: number = 0.003,
-): number {
-  if (reserveOut <= 0 || reserveIn <= 0) return 0;
-  const feeFactor = 1 - feePercentage;
-  const numerator = reserveIn * amountIn * feeFactor;
-  const denominator = reserveOut + amountIn * feeFactor;
-  return numerator / denominator;
+function parseSwapEventFromLogs(
+  logs: Array<{ topics: string[]; data: string; address: string }>,
+): { amount0: number; amount1: number } | null {
+  try {
+    // Possible Swap event signatures (different implementations)
+    const SWAP_SIGS = [
+      "0x71d78e8f4fbff2dff101e66d247c5ab3e847a10786ccd2f1cfc422a25b1b6c5f", // Uniswap V4 PoolManager
+      "0xc42079f94a6350d7e6235f29174924f7e02e8631e695c17466f7d159d07f4119", // Uniswap V3
+    ];
+
+    for (const log of logs) {
+      if (!log.topics[0] || !SWAP_SIGS.includes(log.topics[0])) continue;
+
+      try {
+        // Swap event data: amount0Delta (32 bytes), amount1Delta (32 bytes), sqrtPriceX96 (32 bytes), liquidity (16 bytes), tick (3 bytes)
+        // We need first two 32-byte values: amount0 and amount1
+        const amount0Hex = log.data.slice(0, 66); // 0x + 64 hex chars
+        const amount1Hex = "0x" + log.data.slice(66, 130); // next 64 hex chars
+
+        // Parse as signed integers (can be negative for deltas)
+        let amount0 = Number(BigInt(amount0Hex)) / 1e18;
+        let amount1 = Number(BigInt(amount1Hex)) / 1e18;
+
+        // Take absolute values - we care about magnitude
+        amount0 = Math.abs(amount0);
+        amount1 = Math.abs(amount1);
+
+        if (amount0 > 0 && amount1 > 0) {
+          return { amount0, amount1 };
+        }
+      } catch (e) {
+        // Try next log
+        continue;
+      }
+    }
+  } catch (err) {
+    console.error("[evmTradeBuilder] Failed to parse swap events:", err);
+  }
+
+  return null;
 }
 
 export async function buildTradesFromTransfers(
@@ -208,19 +241,37 @@ export async function buildTradesFromTransfers(
         });
         const hoursAgo = ((new Date().getTime() - claimTime) / (1000 * 60 * 60)).toFixed(1);
         console.log(`[evmTradeBuilder] Bonding curve claim: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} proceeds=${proceedsUsd.toFixed(2)} USD (claimed ${hoursAgo}h ago)`);
-      } else {
-        // No claim found - try to price using pool reserves
-        // For Robinhood Chain bonding curves, proceeds are locked in PoolManager
-        // We can estimate price using reserve ratios at the time of sale
+      } else if (alchemy) {
+        // No claim found - try to parse swap event from transaction receipt
+        // Uniswap V4 Swap events contain actual amount0/amount1 deltas
+        const receipt = await alchemy.getTransactionReceipt(incompleteSell.hash);
 
-        if (alchemy && incompleteSell.recipient) {
-          // Try to get pool reserves at the transaction block
-          // This requires knowing the pool structure and querying PoolManager
-          // For now, we log the incomplete sell and note it needs pool-based pricing
-          console.log(`[evmTradeBuilder] Incomplete sell: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} ESCROW (pool reserves needed: poolManager=${incompleteSell.recipient})`);
-        } else {
-          console.log(`[evmTradeBuilder] Incomplete sell: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} ESCROW (no pool contract available)`);
+        if (receipt && receipt.logs) {
+          const swapAmounts = parseSwapEventFromLogs(receipt.logs);
+
+          if (swapAmounts && swapAmounts.amount1 > 0) {
+            // Assume amount1 is native currency (proceeds)
+            const proceedsUsd = swapAmounts.amount1 * nativePriceUsd;
+            trades.push({
+              txSignature: incompleteSell.hash,
+              chain,
+              wallet,
+              tokenMintOrAddress: incompleteSell.tokenAddress,
+              side: "sell",
+              quantity: incompleteSell.quantity,
+              priceUsd: proceedsUsd / incompleteSell.quantity,
+              timestamp: incompleteSell.timestamp,
+              preGraduation: incompleteSell.preGraduation,
+            });
+            console.log(`[evmTradeBuilder] Swap event parsed: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} proceedsNative=${swapAmounts.amount1.toFixed(6)} proceedsUsd=${proceedsUsd.toFixed(2)}`);
+            continue;
+          }
         }
+
+        // Fallback: log as escrow if we can't parse event
+        console.log(`[evmTradeBuilder] Incomplete sell: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} ESCROW (no swap event found in receipt)`);
+      } else {
+        console.log(`[evmTradeBuilder] Incomplete sell: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} ESCROW (alchemy client not available)`);
       }
     }
   }
