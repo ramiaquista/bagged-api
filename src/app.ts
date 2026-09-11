@@ -2,7 +2,7 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
-import { readFileSync } from "fs";
+import { readFileSync, createReadStream } from "fs";
 import { resolve } from "path";
 import { ZodError } from "zod";
 import { config } from "./config.js";
@@ -108,7 +108,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     try {
       const filePath = resolve(process.cwd(), "public", "brand", file);
       reply.header("Cache-Control", "public, max-age=86400"); // Cache for 24 hours
-      return reply.sendFile(filePath);
+      reply.header("Content-Type", "image/png");
+      return reply.send(createReadStream(filePath));
     } catch (err) {
       throw new Error("Brand asset not found");
     }
