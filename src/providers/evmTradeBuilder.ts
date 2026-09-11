@@ -31,32 +31,15 @@ interface IncompleteSell {
   preGraduation: boolean;
 }
 
-/** Parse Uniswap V4 Swap event logs to extract swap amounts */
-function parseSwapEventFromLogs(
-  logs: Array<{ topics: string[]; data: string; address: string }>,
-  tokenAddress: string,
-): { amountIn: number; amountOut: number } | null {
-  // Swap event signature: Swap(address indexed sender, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)
-  // However, for simple cases we can just look at the transfer events and calculate from there
-  // This is a simplified parser - in production we'd parse the full event
-
-  try {
-    // Look for Transfer events related to the swap
-    const transferSig = "0xddf252ad1be2c89b69c2b068fc378daf05d79f3b827d19cf7f60d11e1b4e8e81"; // Transfer(address,address,uint256)
-
-    for (const log of logs) {
-      if (log.topics[0] === transferSig && log.topics[2]) {
-        // This is a transfer event
-        // For now, return null - we'll rely on multi-tx correlation
-        return null;
-      }
-    }
-  } catch (err) {
-    console.error("[evmTradeBuilder] Failed to parse swap event:", err);
-  }
-
-  return null;
-}
+// Note: Robinhood Chain bonding curves (hood.fun) do not return proceeds via direct transfers.
+// Proceeds are held in escrow and require manual claiming or off-chain settlement verification.
+// To match GMGN's pricing, we would need to:
+// 1. Query PoolManager contract for pool reserves at time of sale
+// 2. Use Uniswap V4 math to calculate expected proceeds
+// 3. Parse swap events from transaction receipts
+// 4. Integrate with hood.fun API if available
+//
+// For now, incomplete sales show $0 and are marked "ESCROW" in logs.
 
 export async function buildTradesFromTransfers(
   wallet: string,
@@ -183,24 +166,23 @@ export async function buildTradesFromTransfers(
   }
 
   // PASS 2: Multi-transaction correlation for incomplete sells
-  // Bonding curve settlements are async; look for native claims with no time limit
-  if (incompleteSells.length > 0 && alchemy) {
+  // Robinhood Chain bonding curves don't return proceeds via simple transfers
+  // Proceeds are held in escrow or require special settlement
+  if (incompleteSells.length > 0) {
     const allNativeIn = transfers.filter((t) => t.category === "external" && t.to === walletLc);
 
     for (const incompleteSell of incompleteSells) {
-      const saleTime = new Date(incompleteSell.timestamp).getTime();
-      const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-
-      // Look for ANY native currency transfer to wallet after the sale
-      // Robinhood Chain bonding curves can have delayed settlements
+      // Try to find claim transactions
       const nativeClaim = allNativeIn.find((t) => {
         if (!t.blockTimestamp || !t.value) return false;
+        // Look for native transfers after sale, no time limit
+        const saleTime = new Date(incompleteSell.timestamp).getTime();
         const claimTime = new Date(t.blockTimestamp).getTime();
-        // Must be after sale, within 7 days
-        return claimTime >= saleTime && claimTime <= saleTime + sevenDaysMs && t.value > 0;
+        return claimTime >= saleTime && t.value > 0;
       });
 
       if (nativeClaim && nativeClaim.value !== null && nativeClaim.value > 0 && nativeClaim.blockTimestamp) {
+        // Found a claim transaction
         const proceedsUsd = nativeClaim.value * nativePriceUsd;
         const claimTime = new Date(nativeClaim.blockTimestamp).getTime();
         trades.push({
@@ -215,15 +197,12 @@ export async function buildTradesFromTransfers(
           preGraduation: incompleteSell.preGraduation,
         });
         const hoursAgo = ((new Date().getTime() - claimTime) / (1000 * 60 * 60)).toFixed(1);
-        console.log(`[evmTradeBuilder] Bonding curve claim matched: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} proceeds=${proceedsUsd.toFixed(2)} USD (claimed ${hoursAgo}h ago)`);
+        console.log(`[evmTradeBuilder] Bonding curve claim: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} proceeds=${proceedsUsd.toFixed(2)} USD (claimed ${hoursAgo}h ago)`);
       } else {
-        // Try to fetch receipt for debugging - might reveal settlement pattern
-        if (alchemy && incompleteSell.hash) {
-          alchemy.getTransactionReceipt(incompleteSell.hash).catch(() => {
-            // Silently ignore errors - this is just for debugging
-          });
-        }
-        console.log(`[evmTradeBuilder] Incomplete sell: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} PENDING SETTLEMENT (no claim found in ${allNativeIn.length} transfers)`);
+        // No claim found - proceeds are locked in escrow
+        // For now, skip the trade (can't price without claim)
+        // Future: Query pool contracts directly for reserve-based pricing
+        console.log(`[evmTradeBuilder] Incomplete sell: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} ESCROW (proceeds not returned to wallet - pool reserves locked)`);
       }
     }
   }
