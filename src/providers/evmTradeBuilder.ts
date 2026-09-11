@@ -155,21 +155,21 @@ export function buildTradesFromTransfers(
   }
 
   // PASS 2: Multi-transaction correlation for incomplete sells
-  // Only match native currency claims; reward tokens are unreliable without price data
+  // Look for follow-up native claims within 24 hours (bonding curve settlements can be async)
   if (incompleteSells.length > 0) {
     const allNativeIn = transfers.filter((t) => t.category === "external" && t.to === walletLc);
 
     for (const incompleteSell of incompleteSells) {
       const saleTime = new Date(incompleteSell.timestamp).getTime();
-      const fifteenMinutesMs = 15 * 60 * 1000;
+      const twentyFourHoursMs = 24 * 60 * 60 * 1000;
 
-      // Look for native currency claims shortly after the sale
-      // Filter to claims that look reasonable (within ~10x the cost basis as a sanity check)
+      // Look for ANY native currency transfer to wallet after the sale (within 24h)
+      // Bonding curve claims can be queued and settle asynchronously
       const nativeClaim = allNativeIn.find((t) => {
         if (!t.blockTimestamp || !t.value) return false;
         const claimTime = new Date(t.blockTimestamp).getTime();
-        // Within 15 min after sale, value > 0
-        return claimTime >= saleTime && claimTime <= saleTime + fifteenMinutesMs && t.value > 0;
+        // Must be after sale, within 24 hours
+        return claimTime >= saleTime && claimTime <= saleTime + twentyFourHoursMs && t.value > 0;
       });
 
       if (nativeClaim && nativeClaim.value !== null && nativeClaim.value > 0) {
@@ -185,11 +185,10 @@ export function buildTradesFromTransfers(
           timestamp: incompleteSell.timestamp, // Use original sale time for matching
           preGraduation: incompleteSell.preGraduation,
         });
-        console.log(`[evmTradeBuilder] Multi-tx native claim: token=${incompleteSell.asset} qty=${incompleteSell.quantity} proceeds=${proceedsUsd.toFixed(2)}`);
+        console.log(`[evmTradeBuilder] Multi-tx claim found: token=${incompleteSell.asset} qty=${incompleteSell.quantity} proceedsNative=${nativeClaim.value.toFixed(6)} proceedsUsd=${proceedsUsd.toFixed(2)}`);
+      } else {
+        console.log(`[evmTradeBuilder] No claim found for ${incompleteSell.asset} within 24h (checked ${allNativeIn.length} native transfers)`);
       }
-      // Note: Reward token claims (COIN, AF, etc.) are skipped because we don't have
-      // their prices and using native price as proxy leads to wildly incorrect calculations.
-      // Future: fetch actual prices for common reward tokens on each chain.
     }
   }
 
