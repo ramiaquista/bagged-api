@@ -83,7 +83,13 @@ function parseSwapEventFromLogs(
         amount1 = Math.abs(amount1);
 
         if (amount0 > 0 && amount1 > 0) {
+          console.log(`[evmTradeBuilder] Parsed Swap event: amount0=${amount0.toFixed(6)} amount1=${amount1.toFixed(6)}`);
           return { amount0, amount1 };
+        }
+
+        // Log if we found an event but amounts don't look right
+        if (amount0 !== 0 || amount1 !== 0) {
+          console.log(`[evmTradeBuilder] Swap event with zero amount: amount0=${amount0.toFixed(6)} amount1=${amount1.toFixed(6)}`);
         }
       } catch (e) {
         // Try next log
