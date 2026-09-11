@@ -17,7 +17,10 @@ export async function sendWaitlistWelcomeEmail(
   logger: FastifyBaseLogger,
 ): Promise<boolean> {
   if (!config.RESEND_API_KEY) {
-    logger.debug({ email }, "RESEND_API_KEY not configured -- skipping welcome email");
+    logger.warn(
+      { email },
+      "RESEND_API_KEY not configured in environment -- skipping welcome email. Set RESEND_API_KEY to enable email delivery.",
+    );
     return false;
   }
 
