@@ -81,50 +81,58 @@ export function buildTradesFromTransfers(
       continue;
     }
 
-    // Sell: token out + native in, OR token out + any ERC-20 in (for wrapped proceeds)
+    // Sell: token out + returns (native or wrapped)
     if (tokenOut.length === 1) {
       const token = tokenOut[0]!;
       const quantity = token.value ?? 0;
 
       if (quantity > 0 && token.tokenAddress) {
+        let proceedsUsd = 0;
+
         // Try native currency proceeds first
         if (nativeIn.length >= 1) {
           const nativeReceived = nativeIn.reduce((sum, t) => sum + (t.value ?? 0), 0);
           if (nativeReceived > 0) {
-            trades.push({
-              txSignature: hash,
-              chain,
-              wallet,
-              tokenMintOrAddress: token.tokenAddress,
-              side: "sell",
-              quantity,
-              priceUsd: (nativeReceived * nativePriceUsd) / quantity,
-              timestamp,
-              preGraduation: touchesBondingCurve,
-            });
-            continue;
+            proceedsUsd = nativeReceived * (nativePriceUsd ?? 0);
           }
         }
 
-        // Fallback: if no native in, also check for ERC-20 token proceeds (wrapped native)
-        // This handles cases where proceeds come back as wrapped tokens instead of native currency
-        const tokensIn = group.filter((t) => t.category === "erc20" && t.to === walletLc && t.tokenAddress && t.tokenAddress !== token.tokenAddress);
-        if (tokensIn.length >= 1) {
-          const proceedsUsd = tokensIn.reduce((sum, t) => sum + (t.value ?? 0), 0) * (nativePriceUsd ?? 1);
-          if (proceedsUsd > 0) {
-            trades.push({
-              txSignature: hash,
-              chain,
-              wallet,
-              tokenMintOrAddress: token.tokenAddress,
-              side: "sell",
-              quantity,
-              priceUsd: proceedsUsd / quantity,
-              timestamp,
-              preGraduation: touchesBondingCurve,
-            });
-            continue;
+        // Fallback: if no native in, check for ERC-20 token proceeds (wrapped native)
+        if (proceedsUsd === 0) {
+          const tokensIn = group.filter((t) => t.category === "erc20" && t.to === walletLc && t.tokenAddress && t.tokenAddress !== token.tokenAddress);
+          if (tokensIn.length >= 1) {
+            proceedsUsd = tokensIn.reduce((sum, t) => sum + (t.value ?? 0), 0) * (nativePriceUsd ?? 1);
           }
+        }
+
+        // Last resort: if still no proceeds found, check for ANY transfer from token recipient back to wallet
+        // This handles bonding curves that route proceeds through intermediate contracts
+        if (proceedsUsd === 0) {
+          const tokenRecipient = token.to;
+          if (tokenRecipient && tokenRecipient !== walletLc) {
+            const procedsFromRecipient = group.filter(
+              (t) => t.from === tokenRecipient && t.to === walletLc && (t.category === "external" || (t.category === "erc20" && t.tokenAddress !== token.tokenAddress))
+            );
+            if (procedsFromRecipient.length > 0) {
+              proceedsUsd = procedsFromRecipient.reduce((sum, t) => sum + ((t.value ?? 0) * (nativePriceUsd ?? 1)), 0);
+            }
+          }
+        }
+
+        // Record sell only if we found proceeds
+        if (proceedsUsd > 0) {
+          trades.push({
+            txSignature: hash,
+            chain,
+            wallet,
+            tokenMintOrAddress: token.tokenAddress,
+            side: "sell",
+            quantity,
+            priceUsd: proceedsUsd / quantity,
+            timestamp,
+            preGraduation: touchesBondingCurve,
+          });
+          continue;
         }
       }
     }
