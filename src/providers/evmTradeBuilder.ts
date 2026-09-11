@@ -65,6 +65,11 @@ function parseSwapEventFromLogs(
       console.log(`[evmTradeBuilder] Event signatures in receipt: ${Array.from(uniqueSigs).join(", ")}`);
     }
 
+    // Find the Swap event with the largest non-zero proceeds
+    // (Sometimes there are multiple Swap events; we want the main one)
+    let bestSwap: { amount0: number; amount1: number } | null = null;
+    let maxProceeds = 0;
+
     for (const log of logs) {
       if (!log.topics[0] || !SWAP_SIGS.includes(log.topics[0])) continue;
 
@@ -95,19 +100,22 @@ function parseSwapEventFromLogs(
         amount0 = Math.abs(amount0);
         amount1 = Math.abs(amount1);
 
-        if (amount0 > 0 && amount1 > 0) {
-          console.log(`[evmTradeBuilder] Parsed Swap event: amount0=${amount0.toFixed(6)} amount1=${amount1.toFixed(6)}`);
-          return { amount0, amount1 };
-        }
-
-        // Log if we found an event but amounts don't look right
-        if (amount0 !== 0 || amount1 !== 0) {
-          console.log(`[evmTradeBuilder] Swap event with zero amount: amount0=${amount0.toFixed(6)} amount1=${amount1.toFixed(6)}`);
+        // Pick the swap with the highest proceeds (max of amount0 or amount1)
+        const proceeds = Math.max(amount0, amount1);
+        if (proceeds > maxProceeds && proceeds > 0) {
+          maxProceeds = proceeds;
+          bestSwap = { amount0, amount1 };
+          console.log(`[evmTradeBuilder] Better Swap event: amount0=${amount0.toFixed(6)} amount1=${amount1.toFixed(6)} proceeds=${proceeds.toFixed(6)}`);
         }
       } catch (e) {
         // Try next log
         continue;
       }
+    }
+
+    if (bestSwap) {
+      console.log(`[evmTradeBuilder] Selected Swap event: amount0=${bestSwap.amount0.toFixed(6)} amount1=${bestSwap.amount1.toFixed(6)}`);
+      return bestSwap;
     }
   } catch (err) {
     console.error("[evmTradeBuilder] Failed to parse swap events:", err);
