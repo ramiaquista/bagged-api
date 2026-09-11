@@ -247,11 +247,11 @@ export async function sendWaitlistWelcomeEmail(
 
   try {
     const result = await resend.emails.send({
-      from: "Bagged <onboarding@resend.dev>",
+      from: "Bagged <business@bagged.life>",
       to: email,
       subject: "Welcome to Bagged — Thanks for joining the waitlist!",
       html: htmlContent,
-      replyTo: "hello@bagged.life",
+      replyTo: "business@bagged.life",
     });
 
     if (result.error) {
