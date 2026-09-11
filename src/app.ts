@@ -2,7 +2,6 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
-import { readFileSync } from "fs";
 import { resolve } from "path";
 import { ZodError } from "zod";
 import { config } from "./config.js";
@@ -95,24 +94,6 @@ export async function buildApp(): Promise<FastifyInstance> {
       return readFileSync(specPath, "utf-8");
     } catch (err) {
       return { error: "OpenAPI spec not found" };
-    }
-  });
-
-  // Serve brand assets (logo, banner)
-  app.get("/brand/:file", async (request, reply) => {
-    const { file } = request.params as { file: string };
-    // Only allow specific files to prevent directory traversal
-    if (!["logo-banner.png", "logo-mark-96.png"].includes(file)) {
-      return reply.code(404).send({ error: "File not found" });
-    }
-    try {
-      const filePath = resolve(process.cwd(), "public", "brand", file);
-      const data = readFileSync(filePath);
-      reply.header("Cache-Control", "public, max-age=86400"); // Cache for 24 hours
-      reply.header("Content-Type", "image/png");
-      return reply.send(data);
-    } catch (err) {
-      return reply.code(404).send({ error: "Brand asset not found" });
     }
   });
 
