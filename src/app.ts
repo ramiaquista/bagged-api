@@ -98,6 +98,24 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
   });
 
+  // Serve brand assets (logo, banner) - exempt from API key requirement in apiKey plugin
+  app.get("/brand/:file", async (request, reply) => {
+    const { file } = request.params as { file: string };
+    // Whitelist allowed files to prevent directory traversal
+    if (!["logo-banner.png", "logo-mark-96.png"].includes(file)) {
+      return reply.code(404).send({ error: "File not found" });
+    }
+    try {
+      const filePath = resolve(process.cwd(), "public", "brand", file);
+      const data = readFileSync(filePath);
+      reply.header("Cache-Control", "public, max-age=86400"); // Cache for 24 hours
+      reply.header("Content-Type", "image/png");
+      return reply.send(data);
+    } catch (err) {
+      return reply.code(404).send({ error: "Brand asset not found" });
+    }
+  });
+
   await app.register(healthRoutes);
   await app.register(cardRoutes);
   await app.register(walletRoutes);

@@ -81,6 +81,8 @@ export default fp(async function apiKeyPlugin(app: FastifyInstance) {
     // Same reasoning as the /admin and /partner exemptions above: its own
     // session-cookie login, not an `x-api-key` this plugin would recognize.
     if (req.url.startsWith("/user")) return;
+    // Brand assets (logo, banner) -- public image files served for emails and docs
+    if (req.url.startsWith("/brand/")) return;
 
     const key = req.headers["x-api-key"];
     if (!key || Array.isArray(key)) {
