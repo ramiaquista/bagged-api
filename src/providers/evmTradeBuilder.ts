@@ -289,22 +289,26 @@ export async function buildTradesFromTransfers(
         if (receipt && receipt.logs) {
           const swapAmounts = parseSwapEventFromLogs(receipt.logs, incompleteSell.tokenAddress);
 
-          if (swapAmounts && swapAmounts.amount1 > 0) {
-            // Assume amount1 is native currency (proceeds)
-            const proceedsUsd = swapAmounts.amount1 * nativePriceUsd;
-            trades.push({
-              txSignature: incompleteSell.hash,
-              chain,
-              wallet,
-              tokenMintOrAddress: incompleteSell.tokenAddress,
-              side: "sell",
-              quantity: incompleteSell.quantity,
-              priceUsd: proceedsUsd / incompleteSell.quantity,
-              timestamp: incompleteSell.timestamp,
-              preGraduation: incompleteSell.preGraduation,
-            });
-            console.log(`[evmTradeBuilder] Swap event parsed: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} proceedsNative=${swapAmounts.amount1.toFixed(6)} proceedsUsd=${proceedsUsd.toFixed(2)}`);
-            continue;
+          if (swapAmounts) {
+            // Use whichever amount is non-zero as proceeds
+            // (amount0 or amount1 depending on token ordering in the pool)
+            const proceeds = Math.max(swapAmounts.amount0, swapAmounts.amount1);
+            if (proceeds > 0) {
+              const proceedsUsd = proceeds * nativePriceUsd;
+              trades.push({
+                txSignature: incompleteSell.hash,
+                chain,
+                wallet,
+                tokenMintOrAddress: incompleteSell.tokenAddress,
+                side: "sell",
+                quantity: incompleteSell.quantity,
+                priceUsd: proceedsUsd / incompleteSell.quantity,
+                timestamp: incompleteSell.timestamp,
+                preGraduation: incompleteSell.preGraduation,
+              });
+              console.log(`[evmTradeBuilder] Swap event parsed: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} proceedsNative=${proceeds.toFixed(6)} proceedsUsd=${proceedsUsd.toFixed(2)}`);
+              continue;
+            }
           }
         }
 
