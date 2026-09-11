@@ -288,11 +288,13 @@ export async function buildTradesFromTransfers(
 
         if (receipt && receipt.logs) {
           const swapAmounts = parseSwapEventFromLogs(receipt.logs, incompleteSell.tokenAddress);
+          console.log(`[evmTradeBuilder] DEBUG: swapAmounts=${swapAmounts ? JSON.stringify(swapAmounts) : "null"}`);
 
           if (swapAmounts) {
             // Use whichever amount is non-zero as proceeds
             // (amount0 or amount1 depending on token ordering in the pool)
             const proceeds = Math.max(swapAmounts.amount0, swapAmounts.amount1);
+            console.log(`[evmTradeBuilder] DEBUG: proceeds=${proceeds} (nativePriceUsd=${nativePriceUsd})`);
             if (proceeds > 0) {
               const proceedsUsd = proceeds * nativePriceUsd;
               trades.push({
