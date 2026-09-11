@@ -188,7 +188,7 @@ export async function sendWaitlistWelcomeEmail(
     <div class="container">
       <!-- Hero with banner -->
       <div class="hero">
-        <img src="https://bagged.life/brand/logo-banner.png" alt="Bagged — Track your P&L across all chains" style="max-width: 360px; height: auto; display: block;">
+        <img src="https://bagged.life/brand/logo-banner-compressed.png" alt="Bagged — Track your P&L across all chains" style="max-width: 360px; height: auto; display: block;">
       </div>
 
       <!-- Content -->
