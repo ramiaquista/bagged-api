@@ -31,15 +31,25 @@ interface IncompleteSell {
   preGraduation: boolean;
 }
 
-// Note: Robinhood Chain bonding curves (hood.fun) do not return proceeds via direct transfers.
-// Proceeds are held in escrow and require manual claiming or off-chain settlement verification.
-// To match GMGN's pricing, we would need to:
-// 1. Query PoolManager contract for pool reserves at time of sale
-// 2. Use Uniswap V4 math to calculate expected proceeds
-// 3. Parse swap events from transaction receipts
-// 4. Integrate with hood.fun API if available
-//
-// For now, incomplete sales show $0 and are marked "ESCROW" in logs.
+/**
+ * Calculate swap output using constant product formula:
+ * For a swap selling tokenOut for nativeIn:
+ * output = (reserveIn * amountIn * 997) / (reserveOut * 1000 + amountIn * 997)
+ *
+ * This approximates Uniswap V3/V4 accounting for the 0.3% fee (997/1000).
+ */
+function calculateSwapOutput(
+  amountIn: number,
+  reserveOut: number,
+  reserveIn: number,
+  feePercentage: number = 0.003,
+): number {
+  if (reserveOut <= 0 || reserveIn <= 0) return 0;
+  const feeFactor = 1 - feePercentage;
+  const numerator = reserveIn * amountIn * feeFactor;
+  const denominator = reserveOut + amountIn * feeFactor;
+  return numerator / denominator;
+}
 
 export async function buildTradesFromTransfers(
   wallet: string,
@@ -199,10 +209,18 @@ export async function buildTradesFromTransfers(
         const hoursAgo = ((new Date().getTime() - claimTime) / (1000 * 60 * 60)).toFixed(1);
         console.log(`[evmTradeBuilder] Bonding curve claim: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} proceeds=${proceedsUsd.toFixed(2)} USD (claimed ${hoursAgo}h ago)`);
       } else {
-        // No claim found - proceeds are locked in escrow
-        // For now, skip the trade (can't price without claim)
-        // Future: Query pool contracts directly for reserve-based pricing
-        console.log(`[evmTradeBuilder] Incomplete sell: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} ESCROW (proceeds not returned to wallet - pool reserves locked)`);
+        // No claim found - try to price using pool reserves
+        // For Robinhood Chain bonding curves, proceeds are locked in PoolManager
+        // We can estimate price using reserve ratios at the time of sale
+
+        if (alchemy && incompleteSell.recipient) {
+          // Try to get pool reserves at the transaction block
+          // This requires knowing the pool structure and querying PoolManager
+          // For now, we log the incomplete sell and note it needs pool-based pricing
+          console.log(`[evmTradeBuilder] Incomplete sell: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} ESCROW (pool reserves needed: poolManager=${incompleteSell.recipient})`);
+        } else {
+          console.log(`[evmTradeBuilder] Incomplete sell: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} ESCROW (no pool contract available)`);
+        }
       }
     }
   }

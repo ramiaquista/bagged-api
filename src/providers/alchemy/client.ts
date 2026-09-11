@@ -27,6 +27,8 @@ export interface AlchemyClient {
   getNativePriceUsd(): Promise<number | null>;
   /** Get transaction receipt with logs for parsing swap events. */
   getTransactionReceipt(txHash: string): Promise<TransactionReceipt | null>;
+  /** Query ERC-20 balanceOf at a specific block height. */
+  getTokenBalance(tokenAddress: string, holder: string, blockNumber: string): Promise<number | null>;
 }
 
 export interface TransactionReceipt {
@@ -38,6 +40,13 @@ export interface TransactionReceipt {
     data: string;
     address: string;
   }>;
+}
+
+export interface PoolReserves {
+  token0: string;
+  token1: string;
+  reserve0: number;
+  reserve1: number;
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -195,6 +204,23 @@ export class AlchemyHttpClient implements AlchemyClient {
       return receipt;
     } catch (err) {
       console.error(`Failed to get receipt for ${txHash}:`, err);
+      return null;
+    }
+  }
+
+  async getTokenBalance(tokenAddress: string, holder: string, blockNumber: string): Promise<number | null> {
+    try {
+      // ERC-20 balanceOf(address) signature: 0x70a08231
+      const encodedCall = "0x70a08231" + holder.slice(2).padStart(64, "0");
+      const result = await rpcCall<string>(this.rpcUrl, "eth_call", [
+        { to: tokenAddress, data: encodedCall },
+        blockNumber,
+      ]);
+      // Result is 32-byte hex value - assume 18 decimals
+      const balance = BigInt(result).toString();
+      return Number(balance) / 1e18;
+    } catch (err) {
+      console.error(`Failed to get balance for ${tokenAddress} at ${holder}:`, err);
       return null;
     }
   }
