@@ -48,7 +48,9 @@ export function buildTradesFromTransfers(
 
     // DEBUG: Log transactions with token out to diagnose sell detection
     if (tokenOut.length > 0) {
-      console.log(`[evmTradeBuilder] TX ${hash.slice(0, 16)}: tokenOut=${tokenOut.map((t) => t.asset ?? t.tokenAddress?.slice(0, 6)).join(",")} nativeIn=${nativeIn.length} tokenIn=${tokenIn.map((t) => t.asset ?? t.tokenAddress?.slice(0, 6)).join(",") || "none"} allTransfers=[${group.map((t) => `${t.category}(${t.from?.slice(0, 6)}→${t.to?.slice(0, 6)},${t.asset ?? "?"})`).join(",")}]`);
+      const tokenRecipient = tokenOut[0]?.to;
+      const incomingFromRecipient = group.filter((t) => t.from === tokenRecipient && t.to === walletLc);
+      console.log(`[evmTradeBuilder] TX ${hash.slice(0, 16)}: tokenOut=${tokenOut.map((t) => t.asset ?? t.tokenAddress?.slice(0, 6)).join(",")} recipient=${tokenRecipient?.slice(0, 6)} nativeIn=${nativeIn.length} tokenIn=${tokenIn.map((t) => t.asset ?? t.tokenAddress?.slice(0, 6)).join(",") || "none"} incomingFromRecipient=${incomingFromRecipient.length} allTransfers=[${group.map((t) => `${t.category}(${t.from?.slice(0, 6)}→${t.to?.slice(0, 6)},${t.asset ?? t.tokenAddress?.slice(0, 6) ?? "native"},${t.value ?? "?"} units)`).join(",")}]`);
     }
 
     const timestamp = group.find((t) => t.blockTimestamp)?.blockTimestamp ?? new Date(0).toISOString();
