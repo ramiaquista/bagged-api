@@ -21,6 +21,16 @@ import type { LaunchpadResolver } from "./launchpads/types.js";
  * reasonable v1 limitation given bonding-curve/launchpad fills (four.meme,
  * hood.fun) are priced in the chain's native gas token.
  */
+interface IncompleteSell {
+  hash: string;
+  timestamp: string;
+  tokenAddress: string;
+  asset: string | null;
+  quantity: number;
+  recipient: string | null;
+  preGraduation: boolean;
+}
+
 export function buildTradesFromTransfers(
   wallet: string,
   chain: Exclude<Chain, "solana">,
@@ -40,29 +50,25 @@ export function buildTradesFromTransfers(
   }
 
   const trades: Trade[] = [];
+  const incompleteSells: IncompleteSell[] = [];
+
+  if (nativePriceUsd === null) {
+    return trades; // No pricing available
+  }
+
+  // PASS 1: Single-transaction matches (buys + complete sells)
   for (const [hash, group] of byHash) {
     const nativeOut = group.filter((t) => t.category === "external" && t.from === walletLc);
     const nativeIn = group.filter((t) => t.category === "external" && t.to === walletLc);
     const tokenOut = group.filter((t) => t.category === "erc20" && t.from === walletLc && t.tokenAddress);
     const tokenIn = group.filter((t) => t.category === "erc20" && t.to === walletLc && t.tokenAddress);
 
-    // DEBUG: Log transactions with token out to diagnose sell detection
-    if (tokenOut.length > 0) {
-      const tokenRecipient = tokenOut[0]?.to;
-      const incomingFromRecipient = group.filter((t) => t.from === tokenRecipient && t.to === walletLc);
-      console.log(`[evmTradeBuilder] FULL_HASH=${hash} tokenOut=${tokenOut.map((t) => t.asset ?? t.tokenAddress?.slice(0, 6)).join(",")} recipient=${tokenRecipient} nativeIn=${nativeIn.length} tokenIn=${tokenIn.map((t) => t.asset ?? t.tokenAddress?.slice(0, 6)).join(",") || "none"} incomingFromRecipient=${incomingFromRecipient.length}`);
-    }
-
     const timestamp = group.find((t) => t.blockTimestamp)?.blockTimestamp ?? new Date(0).toISOString();
     const touchesBondingCurve = group.some(
       (t) => (t.to !== null && launchpad.isBondingCurveAddress(t.to)) || launchpad.isBondingCurveAddress(t.from),
     );
 
-    if (nativePriceUsd === null) {
-      // No native price available -- nothing in this hash can be priced.
-      continue;
-    }
-
+    // BUY: token in + native out
     if (tokenIn.length === 1 && nativeOut.length >= 1) {
       const token = tokenIn[0]!;
       const quantity = token.value ?? 0;
@@ -83,7 +89,7 @@ export function buildTradesFromTransfers(
       continue;
     }
 
-    // Sell: token out + returns (native, wrapped, or reward tokens from async settlement)
+    // SELL: token out + returns (try single-tx match first)
     if (tokenOut.length === 1) {
       const token = tokenOut[0]!;
       const quantity = token.value ?? 0;
@@ -95,22 +101,19 @@ export function buildTradesFromTransfers(
         if (nativeIn.length >= 1) {
           const nativeReceived = nativeIn.reduce((sum, t) => sum + (t.value ?? 0), 0);
           if (nativeReceived > 0) {
-            proceedsUsd = nativeReceived * (nativePriceUsd ?? 0);
+            proceedsUsd = nativeReceived * nativePriceUsd;
           }
         }
 
-        // Fallback: if no native in, check for ERC-20 token proceeds (wrapped native or reward tokens)
-        // This handles both wrapped stables and reward token settlements (e.g., COIN on Robinhood Chain)
+        // Fallback: check for ERC-20 token proceeds (wrapped native or reward tokens)
         if (proceedsUsd === 0) {
           const tokensIn = group.filter((t) => t.category === "erc20" && t.to === walletLc && t.tokenAddress && t.tokenAddress !== token.tokenAddress);
           if (tokensIn.length >= 1) {
-            // Use native price as proxy for reward tokens (reasonable for chain-native tokens like COIN)
-            proceedsUsd = tokensIn.reduce((sum, t) => sum + (t.value ?? 0), 0) * (nativePriceUsd ?? 1);
+            proceedsUsd = tokensIn.reduce((sum, t) => sum + (t.value ?? 0), 0) * nativePriceUsd;
           }
         }
 
-        // Last resort: check for ANY transfer from token recipient back to wallet
-        // This handles bonding curves that route proceeds through intermediate contracts
+        // Check for routed proceeds (from token recipient back to wallet)
         if (proceedsUsd === 0) {
           const tokenRecipient = token.to;
           if (tokenRecipient && tokenRecipient !== walletLc) {
@@ -118,12 +121,11 @@ export function buildTradesFromTransfers(
               (t) => t.from === tokenRecipient && t.to === walletLc && (t.category === "external" || (t.category === "erc20" && t.tokenAddress !== token.tokenAddress))
             );
             if (procedsFromRecipient.length > 0) {
-              proceedsUsd = procedsFromRecipient.reduce((sum, t) => sum + ((t.value ?? 0) * (nativePriceUsd ?? 1)), 0);
+              proceedsUsd = procedsFromRecipient.reduce((sum, t) => sum + ((t.value ?? 0) * nativePriceUsd), 0);
             }
           }
         }
 
-        // Record sell only if we found proceeds
         if (proceedsUsd > 0) {
           trades.push({
             txSignature: hash,
@@ -136,13 +138,82 @@ export function buildTradesFromTransfers(
             timestamp,
             preGraduation: touchesBondingCurve,
           });
-          continue;
+        } else {
+          // Track for multi-tx correlation
+          incompleteSells.push({
+            hash,
+            timestamp,
+            tokenAddress: token.tokenAddress,
+            asset: token.asset,
+            quantity,
+            recipient: token.to,
+            preGraduation: touchesBondingCurve,
+          });
         }
       }
     }
+  }
 
-    // Token-for-token swaps, multi-leg router transactions, airdrops, etc.
-    // -- skipped, see doc comment above.
+  // PASS 2: Multi-transaction correlation for incomplete sells
+  // Look for follow-up claims within ~15 minutes and ~100x the native price tolerance
+  if (incompleteSells.length > 0) {
+    const allNativeIn = transfers.filter((t) => t.category === "external" && t.to === walletLc);
+    const allTokensIn = transfers.filter((t) => t.category === "erc20" && t.to === walletLc);
+
+    for (const incompleteSell of incompleteSells) {
+      const saleTime = new Date(incompleteSell.timestamp).getTime();
+      const fifteenMinutesMs = 15 * 60 * 1000;
+
+      // Look for native currency claims shortly after the sale
+      const nativeClaim = allNativeIn.find((t) => {
+        if (!t.blockTimestamp) return false;
+        const claimTime = new Date(t.blockTimestamp).getTime();
+        // Within 15 min after sale
+        return claimTime >= saleTime && claimTime <= saleTime + fifteenMinutesMs;
+      });
+
+      if (nativeClaim && nativeClaim.value && nativeClaim.value > 0) {
+        const proceedsUsd = nativeClaim.value * nativePriceUsd;
+        trades.push({
+          txSignature: nativeClaim.hash,
+          chain,
+          wallet,
+          tokenMintOrAddress: incompleteSell.tokenAddress,
+          side: "sell",
+          quantity: incompleteSell.quantity,
+          priceUsd: proceedsUsd / incompleteSell.quantity,
+          timestamp: incompleteSell.timestamp, // Use original sale time for matching
+          preGraduation: incompleteSell.preGraduation,
+        });
+        console.log(`[evmTradeBuilder] Multi-tx claim found: token=${incompleteSell.asset} qty=${incompleteSell.quantity} proceeds=${proceedsUsd.toFixed(2)}`);
+        continue;
+      }
+
+      // Look for reward token claims (COIN, etc.)
+      const tokenClaim = allTokensIn.find((t) => {
+        if (!t.blockTimestamp || t.tokenAddress === incompleteSell.tokenAddress) return false;
+        const claimTime = new Date(t.blockTimestamp).getTime();
+        // Within 15 min after sale
+        return claimTime >= saleTime && claimTime <= saleTime + fifteenMinutesMs;
+      });
+
+      if (tokenClaim && tokenClaim.value && tokenClaim.value > 0) {
+        const proceedsUsd = tokenClaim.value * nativePriceUsd; // Proxy for reward token
+        trades.push({
+          txSignature: tokenClaim.hash,
+          chain,
+          wallet,
+          tokenMintOrAddress: incompleteSell.tokenAddress,
+          side: "sell",
+          quantity: incompleteSell.quantity,
+          priceUsd: proceedsUsd / incompleteSell.quantity,
+          timestamp: incompleteSell.timestamp,
+          preGraduation: incompleteSell.preGraduation,
+        });
+        console.log(`[evmTradeBuilder] Multi-tx reward claim found: token=${incompleteSell.asset} qty=${incompleteSell.quantity} rewardToken=${tokenClaim.asset} value=${tokenClaim.value}`);
+        continue;
+      }
+    }
   }
 
   return trades.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
