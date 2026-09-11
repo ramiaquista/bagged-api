@@ -98,6 +98,22 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
   });
 
+  // Serve brand assets (logo, banner)
+  app.get("/brand/:file", async (request, reply) => {
+    const { file } = request.params as { file: string };
+    // Only allow specific files to prevent directory traversal
+    if (!["logo-banner.png", "logo-mark-96.png"].includes(file)) {
+      throw new Error("File not found");
+    }
+    try {
+      const filePath = resolve(process.cwd(), "public", "brand", file);
+      reply.header("Cache-Control", "public, max-age=86400"); // Cache for 24 hours
+      return reply.sendFile(filePath);
+    } catch (err) {
+      throw new Error("Brand asset not found");
+    }
+  });
+
   await app.register(healthRoutes);
   await app.register(cardRoutes);
   await app.register(walletRoutes);
