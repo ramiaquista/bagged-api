@@ -60,26 +60,16 @@ export async function sendWaitlistWelcomeEmail(
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
     }
     .hero {
-      background: linear-gradient(135deg, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.6) 100%), url('https://bagged.life/brand/logo-banner.png') center/cover;
-      padding: 64px 40px;
+      background: url('https://bagged.life/brand/logo-banner.png') center/contain no-repeat;
+      background-color: #000000;
+      padding: 40px;
       text-align: center;
-      color: white;
-      min-height: 280px;
+      min-height: 200px;
       display: flex;
       flex-direction: column;
       justify-content: center;
+      align-items: center;
       position: relative;
-    }
-    .hero h1 {
-      font-size: 42px;
-      font-weight: 700;
-      margin-bottom: 12px;
-      letter-spacing: -1px;
-    }
-    .hero p {
-      font-size: 16px;
-      color: #e0e0e0;
-      font-weight: 400;
     }
     .content {
       padding: 48px 40px;
@@ -193,10 +183,7 @@ export async function sendWaitlistWelcomeEmail(
   <div class="wrapper">
     <div class="container">
       <!-- Hero with banner background -->
-      <div class="hero">
-        <h1>You're In</h1>
-        <p>Get ready to track your P&L like never before</p>
-      </div>
+      <div class="hero"></div>
 
       <!-- Content -->
       <div class="content">
