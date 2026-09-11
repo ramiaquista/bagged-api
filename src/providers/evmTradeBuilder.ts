@@ -74,11 +74,24 @@ function parseSwapEventFromLogs(
         const amount0Hex = log.data.slice(0, 66); // 0x + 64 hex chars
         const amount1Hex = "0x" + log.data.slice(66, 130); // next 64 hex chars
 
-        // Parse as signed integers (can be negative for deltas)
-        let amount0 = Number(BigInt(amount0Hex)) / 1e18;
-        let amount1 = Number(BigInt(amount1Hex)) / 1e18;
+        // Parse as signed 256-bit integers (int256) - can be negative for swaps
+        // Need to handle two's complement for negative values
+        const parseSignedInt256 = (hex: string): bigint => {
+          const num = BigInt(hex);
+          const maxUint256 = BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
+          const maxInt256 = BigInt("0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
 
-        // Take absolute values - we care about magnitude
+          // If the value is larger than max int256, it's negative in two's complement
+          return num > maxInt256 ? num - (maxUint256 + BigInt(1)) : num;
+        };
+
+        let amount0Bigint = parseSignedInt256(amount0Hex);
+        let amount1Bigint = parseSignedInt256(amount1Hex);
+
+        let amount0 = Number(amount0Bigint) / 1e18;
+        let amount1 = Number(amount1Bigint) / 1e18;
+
+        // Take absolute values - we care about magnitude of swap
         amount0 = Math.abs(amount0);
         amount1 = Math.abs(amount1);
 
