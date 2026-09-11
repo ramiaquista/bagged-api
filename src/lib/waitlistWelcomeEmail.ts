@@ -4,7 +4,7 @@ import { config } from "../config.js";
 
 /**
  * Sends a professional welcome email to someone who joins the waitlist.
- * Includes the Bagged logo and marketing content about the platform.
+ * Branded template with Bagged logo and color scheme.
  *
  * Uses the Resend SDK (https://resend.com) for reliable email delivery.
  * Called after waitlist signup is committed, so failures don't affect the signup.
@@ -26,14 +26,14 @@ export async function sendWaitlistWelcomeEmail(
 
   const resend = new Resend(config.RESEND_API_KEY);
 
-  // Professional HTML email template with logo and marketing content
+  // Premium, branded HTML email template
   const htmlContent = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to Bagged</title>
+  <title>You're In — Bagged Early Access</title>
   <style>
     * {
       margin: 0;
@@ -44,94 +44,128 @@ export async function sendWaitlistWelcomeEmail(
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
       line-height: 1.6;
       color: #1a1a1a;
-      background: #f9fafb;
+      background: #f5f5f5;
+    }
+    .wrapper {
+      background: #f5f5f5;
+      padding: 20px;
     }
     .container {
       max-width: 600px;
       margin: 0 auto;
       background: white;
-      border-radius: 8px;
+      border-radius: 12px;
       overflow: hidden;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     }
     .header {
       background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
-      padding: 40px 20px;
+      padding: 48px 32px;
       text-align: center;
     }
     .logo {
-      height: 32px;
-      margin-bottom: 20px;
+      font-size: 48px;
+      margin-bottom: 16px;
     }
     .header h1 {
       color: white;
-      font-size: 24px;
-      font-weight: 600;
+      font-size: 28px;
+      font-weight: 700;
       margin-bottom: 8px;
+      letter-spacing: -0.5px;
     }
-    .header p {
-      color: #d1d5db;
+    .header-subtitle {
+      color: #b0b0b0;
       font-size: 14px;
+      font-weight: 500;
     }
     .content {
-      padding: 40px;
+      padding: 48px 32px;
     }
     .greeting {
       font-size: 18px;
       font-weight: 600;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
       color: #1a1a1a;
     }
-    .section {
+    .intro-text {
+      font-size: 15px;
+      line-height: 1.8;
+      color: #4b5563;
       margin-bottom: 32px;
     }
-    .section-title {
-      font-size: 16px;
+    .highlight-text {
+      color: #0284c7;
       font-weight: 600;
+    }
+    .section {
+      margin-bottom: 36px;
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 700;
       color: #1a1a1a;
-      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    .section-content {
-      color: #4b5563;
-      font-size: 14px;
-      line-height: 1.8;
-    }
     .feature-list {
       list-style: none;
-      margin: 12px 0;
+      margin: 0;
     }
     .feature-list li {
       padding-left: 24px;
       position: relative;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
       color: #4b5563;
       font-size: 14px;
+      line-height: 1.6;
     }
     .feature-list li:before {
-      content: "✓";
+      content: "→";
       position: absolute;
       left: 0;
-      color: #10b981;
+      color: #0284c7;
       font-weight: bold;
+      font-size: 16px;
+    }
+    .feature-list a {
+      color: #0284c7;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .cta-section {
+      background: linear-gradient(135deg, #0284c7 0%, #0166a8 100%);
+      border-radius: 8px;
+      padding: 32px;
+      text-align: center;
+      margin: 40px 0;
+    }
+    .cta-text {
+      color: white;
+      font-size: 14px;
+      margin-bottom: 16px;
+      line-height: 1.6;
     }
     .cta-button {
       display: inline-block;
-      background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
-      color: white;
-      padding: 12px 28px;
+      background: white;
+      color: #0284c7;
+      padding: 12px 32px;
       border-radius: 6px;
       text-decoration: none;
-      font-weight: 600;
+      font-weight: 700;
       font-size: 14px;
-      margin: 20px 0;
       transition: transform 0.2s, box-shadow 0.2s;
+      border: none;
+      cursor: pointer;
     }
     .cta-button:hover {
       transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);
+      box-shadow: 0 8px 16px rgba(2, 132, 199, 0.3);
     }
     .divider {
       border-top: 1px solid #e5e7eb;
@@ -139,106 +173,112 @@ export async function sendWaitlistWelcomeEmail(
     }
     .footer {
       background: #f9fafb;
-      padding: 24px 40px;
+      padding: 32px;
       border-top: 1px solid #e5e7eb;
       text-align: center;
     }
+    .footer-text {
+      color: #6b7280;
+      font-size: 12px;
+      line-height: 1.8;
+    }
     .footer-links {
-      margin-bottom: 16px;
+      margin-bottom: 20px;
       font-size: 13px;
     }
     .footer-links a {
       color: #0284c7;
       text-decoration: none;
       margin: 0 12px;
+      font-weight: 500;
     }
-    .footer-text {
-      color: #6b7280;
-      font-size: 12px;
-      line-height: 1.6;
-    }
-    .highlight {
+    .badge {
+      display: inline-block;
+      background: #e0f2fe;
       color: #0284c7;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
       font-weight: 600;
+      margin-bottom: 24px;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <!-- Header -->
-    <div class="header">
-      <div style="font-size: 28px; margin-bottom: 8px;">📊</div>
-      <h1>Welcome to Bagged</h1>
-      <p>Your all-in-one crypto portfolio PnL tracker</p>
-    </div>
+  <div class="wrapper">
+    <div class="container">
+      <!-- Header -->
+      <div class="header">
+        <div class="logo">📊</div>
+        <h1>You're In</h1>
+        <p class="header-subtitle">Early access to Bagged</p>
+      </div>
 
-    <!-- Content -->
-    <div class="content">
-      <p class="greeting">Thanks for joining the waitlist!</p>
+      <!-- Content -->
+      <div class="content">
+        <p class="greeting">Hey there 👋</p>
 
-      <div class="section">
-        <p class="section-content">
-          We're excited to have you on board. Bagged is revolutionizing how crypto traders track their portfolio performance across all chains and exchanges in one place.
+        <p class="intro-text">
+          Thanks for joining the Bagged waitlist. You're part of an early group of traders who are about to get access to something that changes how crypto traders think about their P&L.
+        </p>
+
+        <div class="badge">🚀 EARLY ACCESS</div>
+
+        <div class="section">
+          <div class="section-title">Why Bagged Exists</div>
+          <p class="intro-text" style="margin-bottom: 0;">
+            Tracking crypto performance across chains and exchanges is a nightmare. Most traders use spreadsheets, gut feeling, or fragmented tools that don't talk to each other. Bagged fixes this.
+          </p>
+        </div>
+
+        <div class="section">
+          <div class="section-title">What You Get</div>
+          <ul class="feature-list">
+            <li>Real-time P&L tracking across Solana, Ethereum, BNB, and more</li>
+            <li>Daily P&L calendar — see exactly what you made or lost each day</li>
+            <li>Multi-wallet support — connect all your addresses in seconds</li>
+            <li>Comprehensive trade history and performance analytics</li>
+            <li>API access for builders and integrations</li>
+          </ul>
+        </div>
+
+        <!-- CTA Section -->
+        <div class="cta-section">
+          <p class="cta-text">
+            We're launching soon with early access for waitlist members. You'll be among the first to experience Bagged.
+          </p>
+          <p class="cta-text" style="margin-bottom: 24px; font-weight: 600; font-size: 15px;">
+            You'll hear from us with launch details very soon.
+          </p>
+        </div>
+
+        <div class="section">
+          <div class="section-title">In The Meantime</div>
+          <ul class="feature-list">
+            <li><a href="https://bagged.life/docs">Check out our API docs</a> to see what's coming</li>
+            <li>Follow us on <a href="https://x.com/baggedlife">X (Twitter)</a> for updates</li>
+            <li>Have ideas? Reply to this email — we read everything</li>
+          </ul>
+        </div>
+
+        <p class="intro-text" style="margin-top: 32px;">
+          See you at launch,<br>
+          <strong>The Bagged Team</strong>
         </p>
       </div>
 
-      <div class="section">
-        <div class="section-title">💡 What's Bagged?</div>
-        <p class="section-content">
-          Bagged provides real-time P&L tracking, comprehensive portfolio analytics, and detailed trade history analysis — all the insights you need to understand your crypto performance.
+      <!-- Footer -->
+      <div class="footer">
+        <div class="footer-links">
+          <a href="https://bagged.life">Website</a>
+          <a href="https://bagged.life/docs">Docs</a>
+          <a href="https://bagged.life/contact">Contact</a>
+        </div>
+        <p class="footer-text">
+          © 2026 Bagged. All rights reserved.<br>
+          You received this because you joined the waitlist at bagged.life
         </p>
       </div>
-
-      <div class="section">
-        <div class="section-title">✨ Key Features</div>
-        <ul class="feature-list">
-          <li>Track P&L across all chains (Solana, Ethereum, BNB, and more)</li>
-          <li>Connect multiple wallets and exchanges in seconds</li>
-          <li>Daily P&L calendar to track your daily wins and losses</li>
-          <li>Real-time portfolio analytics and performance metrics</li>
-          <li>RESTful API for custom integrations</li>
-          <li>Webhook notifications for threshold alerts</li>
-        </ul>
-      </div>
-
-      <div class="section" style="text-align: center;">
-        <p style="color: #4b5563; font-size: 14px; margin-bottom: 12px;">
-          We're working hard to get Bagged ready for launch. <span class="highlight">We'll reach out soon</span> with early access details.
-        </p>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="section">
-        <div class="section-title">🚀 What's Next?</div>
-        <p class="section-content">
-          In the meantime, you can:
-        </p>
-        <ul class="feature-list">
-          <li>Explore our documentation and API reference at <a href="https://bagged.life/docs" style="color: #0284c7; text-decoration: none;">bagged.life/docs</a></li>
-          <li>Join our community and share your feedback</li>
-          <li>Follow us on social media for product updates</li>
-        </ul>
-      </div>
-
-      <div class="section" style="text-align: center;">
-        <p style="color: #4b5563; font-size: 14px; margin-top: 24px;">
-          Questions? Feel free to reply to this email or reach out at <a href="mailto:hello@bagged.life" style="color: #0284c7; text-decoration: none;">hello@bagged.life</a>
-        </p>
-      </div>
-    </div>
-
-    <!-- Footer -->
-    <div class="footer">
-      <div class="footer-links">
-        <a href="https://bagged.life">Website</a>
-        <a href="https://bagged.life/docs">Docs</a>
-        <a href="https://bagged.life/contact">Contact</a>
-      </div>
-      <p class="footer-text">
-        © 2026 Bagged. All rights reserved.<br>
-        You received this email because you signed up for the Bagged waitlist.
-      </p>
     </div>
   </div>
 </body>
@@ -249,7 +289,7 @@ export async function sendWaitlistWelcomeEmail(
     const result = await resend.emails.send({
       from: "Bagged <business@bagged.life>",
       to: email,
-      subject: "Welcome to Bagged — Thanks for joining the waitlist!",
+      subject: "You're In — Bagged Early Access",
       html: htmlContent,
       replyTo: "business@bagged.life",
     });
