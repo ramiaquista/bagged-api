@@ -76,24 +76,52 @@ export function buildTradesFromTransfers(
       continue;
     }
 
-    if (tokenOut.length === 1 && nativeIn.length >= 1) {
+    // Sell: token out + native in, OR token out + any ERC-20 in (for wrapped proceeds)
+    if (tokenOut.length === 1) {
       const token = tokenOut[0]!;
       const quantity = token.value ?? 0;
-      const nativeReceived = nativeIn.reduce((sum, t) => sum + (t.value ?? 0), 0);
-      if (quantity > 0 && nativeReceived > 0 && token.tokenAddress) {
-        trades.push({
-          txSignature: hash,
-          chain,
-          wallet,
-          tokenMintOrAddress: token.tokenAddress,
-          side: "sell",
-          quantity,
-          priceUsd: (nativeReceived * nativePriceUsd) / quantity,
-          timestamp,
-          preGraduation: touchesBondingCurve,
-        });
+
+      if (quantity > 0 && token.tokenAddress) {
+        // Try native currency proceeds first
+        if (nativeIn.length >= 1) {
+          const nativeReceived = nativeIn.reduce((sum, t) => sum + (t.value ?? 0), 0);
+          if (nativeReceived > 0) {
+            trades.push({
+              txSignature: hash,
+              chain,
+              wallet,
+              tokenMintOrAddress: token.tokenAddress,
+              side: "sell",
+              quantity,
+              priceUsd: (nativeReceived * nativePriceUsd) / quantity,
+              timestamp,
+              preGraduation: touchesBondingCurve,
+            });
+            continue;
+          }
+        }
+
+        // Fallback: if no native in, also check for ERC-20 token proceeds (wrapped native)
+        // This handles cases where proceeds come back as wrapped tokens instead of native currency
+        const tokensIn = group.filter((t) => t.category === "erc20" && t.to === walletLc && t.tokenAddress && t.tokenAddress !== token.tokenAddress);
+        if (tokensIn.length >= 1) {
+          const proceedsUsd = tokensIn.reduce((sum, t) => sum + (t.value ?? 0), 0) * (nativePriceUsd ?? 1);
+          if (proceedsUsd > 0) {
+            trades.push({
+              txSignature: hash,
+              chain,
+              wallet,
+              tokenMintOrAddress: token.tokenAddress,
+              side: "sell",
+              quantity,
+              priceUsd: proceedsUsd / quantity,
+              timestamp,
+              preGraduation: touchesBondingCurve,
+            });
+            continue;
+          }
+        }
       }
-      continue;
     }
 
     // Token-for-token swaps, multi-leg router transactions, airdrops, etc.
