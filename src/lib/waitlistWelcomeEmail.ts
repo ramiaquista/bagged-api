@@ -203,11 +203,11 @@ export async function sendWaitlistWelcomeEmail(
         <div class="section">
           <div class="section-title">The essentials you get</div>
           <ul class="feature-list">
-            <li>Multichain P&L (Solana, Ethereum, BNB, and more)</li>
-            <li>Daily P&L calendar — track wins and losses by day</li>
-            <li>Connect unlimited wallets in seconds</li>
-            <li>Real-time portfolio analytics</li>
-            <li>REST API for custom integrations</li>
+            <li>⛓️ Multichain P&L (Solana, Ethereum, BNB, and more)</li>
+            <li>📅 Daily P&L calendar — track wins and losses by day</li>
+            <li>🪙 Connect unlimited wallets in seconds</li>
+            <li>📈 Real-time portfolio analytics</li>
+            <li>🔌 REST API for custom integrations</li>
           </ul>
         </div>
 
@@ -221,9 +221,9 @@ export async function sendWaitlistWelcomeEmail(
         <div class="section">
           <div class="section-title">In the meantime</div>
           <ul class="feature-list">
-            <li>Read our <a href="https://bagged.life/docs">API documentation</a> to see what's coming</li>
-            <li>Follow <a href="https://x.com/baggedlife">@baggedlife on X</a> for updates</li>
-            <li>Reply to this email with feedback — we read everything</li>
+            <li>📚 Read our <a href="https://bagged.life/docs">API documentation</a> to see what's coming</li>
+            <li>𝕏 Follow <a href="https://x.com/baggedlife">@baggedlife on X</a> for updates</li>
+            <li>💬 Reply to this email with feedback — we read everything</li>
           </ul>
         </div>
 
