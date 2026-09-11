@@ -46,6 +46,11 @@ export function buildTradesFromTransfers(
     const tokenOut = group.filter((t) => t.category === "erc20" && t.from === walletLc && t.tokenAddress);
     const tokenIn = group.filter((t) => t.category === "erc20" && t.to === walletLc && t.tokenAddress);
 
+    // DEBUG: Log transactions with token out to diagnose sell detection
+    if (tokenOut.length > 0) {
+      console.log(`[evmTradeBuilder] TX ${hash.slice(0, 16)}: tokenOut=${tokenOut.map((t) => t.asset ?? t.tokenAddress?.slice(0, 6)).join(",")} nativeIn=${nativeIn.length} tokenIn=${tokenIn.map((t) => t.asset ?? t.tokenAddress?.slice(0, 6)).join(",") || "none"} allTransfers=[${group.map((t) => `${t.category}(${t.from?.slice(0, 6)}→${t.to?.slice(0, 6)},${t.asset ?? "?"})`).join(",")}]`);
+    }
+
     const timestamp = group.find((t) => t.blockTimestamp)?.blockTimestamp ?? new Date(0).toISOString();
     const touchesBondingCurve = group.some(
       (t) => (t.to !== null && launchpad.isBondingCurveAddress(t.to)) || launchpad.isBondingCurveAddress(t.from),
