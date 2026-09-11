@@ -295,7 +295,11 @@ export async function buildTradesFromTransfers(
             // (amount0 or amount1 depending on token ordering in the pool)
             const proceeds = Math.max(swapAmounts.amount0, swapAmounts.amount1);
             console.log(`[evmTradeBuilder] DEBUG: proceeds=${proceeds} (nativePriceUsd=${nativePriceUsd})`);
-            if (proceeds > 0) {
+
+            // Filter out reward tokens: if proceeds > 10 RHO, it's likely a reward token (AF, GD, etc)
+            // not native currency. Native currency swaps are typically < 1 RHO for small bonding curve sales.
+            const MAX_NATIVE_PROCEEDS = 10; // RHO tokens
+            if (proceeds > 0 && proceeds < MAX_NATIVE_PROCEEDS) {
               const proceedsUsd = proceeds * nativePriceUsd;
               trades.push({
                 txSignature: incompleteSell.hash,
