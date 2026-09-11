@@ -142,6 +142,16 @@ export class EvmProvider implements ChainProvider, TradesProvider {
 
     const { positions, rawTrades, tradesByToken, symbolByToken, firstTradeTimestamp } = await this.loadPortfolioWithTrades(address, this.alchemy);
 
+    // DEBUG: Log input to computeCostBasis
+    for (const [token, trades] of tradesByToken) {
+      const buys = trades.filter(t => t.side === "buy");
+      const sells = trades.filter(t => t.side === "sell");
+      if (buys.length > 0) {
+        const buySum = buys.reduce((sum, t) => sum + (t.quantity * t.priceUsd), 0);
+        console.log(`[evm.ts] Before costBasis: token=${token.slice(0,6)} buys=${buys.length} (sum cost=${buySum.toFixed(2)}) sells=${sells.length}`);
+      }
+    }
+
     return positions.map((p) => {
       const tokenTrades = tradesByToken.get(p.tokenAddress) || [];
       const buyTrades = tokenTrades.filter((t) => t.side === "buy");
