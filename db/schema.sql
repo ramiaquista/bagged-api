@@ -256,3 +256,15 @@ create table webhooks (
   threshold_pct numeric not null default 10,
   created_at timestamptz not null default now()
 );
+
+-- Email approval whitelist for /app and /b2b-dashboard signup restrictions.
+-- Only email addresses in this table are allowed to create new user or partner
+-- accounts. Managed via the `/admin/approved-emails` dashboard. `email` is
+-- stored lowercase (src/db/approvedEmails.ts normalizes it before insert).
+create table approved_emails (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  notes text,
+  approved_by text not null default 'admin',
+  created_at timestamptz not null default now()
+);
