@@ -191,7 +191,7 @@ export class EvmProvider implements ChainProvider, TradesProvider {
       );
     }
 
-    const rawTrades = buildTradesFromTransfers(address, this.chain, transfers, nativePriceUsd, this.launchpad);
+    const rawTrades = await buildTradesFromTransfers(address, this.chain, transfers, nativePriceUsd, this.launchpad, alchemy);
 
     const washResult = filterWashTrades(rawTrades);
     const rugResult = resolveRugs(washResult.cleanTrades);
@@ -248,7 +248,7 @@ export class EvmProvider implements ChainProvider, TradesProvider {
       );
     }
 
-    const rawTrades = buildTradesFromTransfers(address, this.chain, transfers, nativePriceUsd, this.launchpad);
+    const rawTrades = await buildTradesFromTransfers(address, this.chain, transfers, nativePriceUsd, this.launchpad, alchemy);
 
     const washResult = filterWashTrades(rawTrades);
     const rugResult = resolveRugs(washResult.cleanTrades);

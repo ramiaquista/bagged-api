@@ -25,6 +25,19 @@ export interface AlchemyClient {
   getAllTransfers(address: string): Promise<AssetTransfer[]>;
   getTokenPriceUsd(tokenAddress: string): Promise<number | null>;
   getNativePriceUsd(): Promise<number | null>;
+  /** Get transaction receipt with logs for parsing swap events. */
+  getTransactionReceipt(txHash: string): Promise<TransactionReceipt | null>;
+}
+
+export interface TransactionReceipt {
+  transactionHash: string;
+  blockNumber: string;
+  gasUsed: string;
+  logs: Array<{
+    topics: string[];
+    data: string;
+    address: string;
+  }>;
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -169,5 +182,20 @@ export class AlchemyHttpClient implements AlchemyClient {
     if (!res.ok) return null;
     const json = (await res.json()) as PricesResponse;
     return extractUsd(json.data?.[0]?.prices);
+  }
+
+  async getTransactionReceipt(txHash: string): Promise<TransactionReceipt | null> {
+    try {
+      const receipt = await rpcCall<{
+        transactionHash: string;
+        blockNumber: string;
+        gasUsed: string;
+        logs: Array<{ topics: string[]; data: string; address: string }>;
+      }>(this.rpcUrl, "eth_getTransactionReceipt", [txHash]);
+      return receipt;
+    } catch (err) {
+      console.error(`Failed to get receipt for ${txHash}:`, err);
+      return null;
+    }
   }
 }
