@@ -144,12 +144,13 @@ export class EvmProvider implements ChainProvider, TradesProvider {
 
     return positions.map((p) => {
       const tokenTrades = tradesByToken.get(p.tokenAddress) || [];
-      const quantityBought = tokenTrades
-        .filter((t) => t.side === "buy")
-        .reduce((sum, t) => sum + t.quantity, 0);
+      const buyTrades = tokenTrades.filter((t) => t.side === "buy");
+      const quantityBought = buyTrades.reduce((sum, t) => sum + t.quantity, 0);
       const quantitySold = tokenTrades
         .filter((t) => t.side === "sell")
         .reduce((sum, t) => sum + t.quantity, 0);
+
+      console.log(`[evm.ts] Token ${p.symbol}: ${buyTrades.length} buys (qty=${quantityBought.toFixed(2)}), costBasis=${p.costBasis.costBasisUsd.toFixed(2)}`);
       const proceedsUsd = tokenTrades
         .filter((t) => t.side === "sell")
         .reduce((sum, t) => sum + t.quantity * t.priceUsd, 0);
