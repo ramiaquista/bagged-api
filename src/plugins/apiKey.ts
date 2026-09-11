@@ -58,6 +58,7 @@ export default fp(async function apiKeyPlugin(app: FastifyInstance) {
   app.addHook("onRequest", async (req: FastifyRequest, reply: FastifyReply) => {
     void reply;
     if (req.url.startsWith("/health")) return;
+    if (req.url.startsWith("/status")) return; // Public status page endpoint
     if (req.method === "POST" && req.url.split("?")[0] === "/waitlist") return;
     // Public shareable PnL-card tool (NEXT_STEPS.md Item 4) -- see
     // src/routes/card.ts. Deliberately public/unauthenticated, unlike
