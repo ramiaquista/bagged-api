@@ -155,12 +155,13 @@ export class EvmProvider implements ChainProvider, TradesProvider {
     return positions.map((p) => {
       const tokenTrades = tradesByToken.get(p.tokenAddress) || [];
       const buyTrades = tokenTrades.filter((t) => t.side === "buy");
+      const sellTrades = tokenTrades.filter((t) => t.side === "sell");
       const quantityBought = buyTrades.reduce((sum, t) => sum + t.quantity, 0);
-      const quantitySold = tokenTrades
-        .filter((t) => t.side === "sell")
-        .reduce((sum, t) => sum + t.quantity, 0);
+      const quantitySold = sellTrades.reduce((sum, t) => sum + t.quantity, 0);
 
-      console.log(`[evm.ts] Token ${p.symbol}: ${buyTrades.length} buys (qty=${quantityBought.toFixed(2)}), costBasis=${p.costBasis.costBasisUsd.toFixed(2)}`);
+      // Calculate cost basis directly from buy trades
+      // (not from p.costBasis which may be 0 if position is fully liquidated)
+      const costBasisUsd = buyTrades.reduce((sum, t) => sum + (t.quantity * t.priceUsd), 0);
       const proceedsUsd = tokenTrades
         .filter((t) => t.side === "sell")
         .reduce((sum, t) => sum + t.quantity * t.priceUsd, 0);
@@ -176,10 +177,10 @@ export class EvmProvider implements ChainProvider, TradesProvider {
         symbol: p.symbol,
         tokenAddress: p.tokenAddress,
         quantityBought: round2(quantityBought),
-        costBasisUsd: round2(p.costBasis.costBasisUsd),
+        costBasisUsd: round2(costBasisUsd),  // Calculate from buys, not from p.costBasis (which is 0 for liquidated positions)
         quantitySold: round2(quantitySold),
         proceedsUsd: round2(proceedsUsd),
-        realizedPnlUsd: round2(p.costBasis.realizedPnlUsd),
+        realizedPnlUsd: round2(proceedsUsd - costBasisUsd),  // Recalculate PnL: proceeds - cost
         quantityHeld: round2(p.costBasis.quantityHeld),
         holdingDurationMs,
       };
