@@ -167,6 +167,7 @@ export async function buildTradesFromTransfers(
       const token = tokenIn[0]!;
       const quantity = token.value ?? 0;
       const nativeSpent = nativeOut.reduce((sum, t) => sum + (t.value ?? 0), 0);
+      console.log(`[evmTradeBuilder] Buy detected: token=${token.asset ?? token.tokenAddress?.slice(0, 6)} qty=${quantity.toFixed(2)} nativeSpent=${nativeSpent.toFixed(6)} costUsd=${(nativeSpent * nativePriceUsd).toFixed(2)}`);
       if (quantity > 0 && nativeSpent > 0 && token.tokenAddress) {
         trades.push({
           txSignature: hash,
@@ -179,6 +180,7 @@ export async function buildTradesFromTransfers(
           timestamp,
           preGraduation: touchesBondingCurve,
         });
+        console.log(`[evmTradeBuilder] Buy recorded: ${token.asset} qty=${quantity.toFixed(2)} costUsd=${(nativeSpent * nativePriceUsd).toFixed(2)}`);
       }
       continue;
     }
