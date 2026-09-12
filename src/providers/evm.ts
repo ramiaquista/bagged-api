@@ -10,7 +10,7 @@ import { buildTradesFromTransfers } from "./evmTradeBuilder.js";
 import { getLaunchpadResolver } from "./launchpads/registry.js";
 import type { LaunchpadResolver } from "./launchpads/types.js";
 import { mockPnlFor, mockPositionsFor } from "./mockData.js";
-import type { ChainProvider, TradesProvider, TokenTradeHistory } from "./types.js";
+import type { ChainProvider, DailyRealizedPnl, DailyRealizedPnlProvider, TradesProvider, TokenTradeHistory } from "./types.js";
 
 export interface EvmProviderDeps {
   /** Injectable for tests; defaults to a real AlchemyHttpClient built from config.ALCHEMY_API_KEY. */
@@ -65,7 +65,7 @@ function round2(n: number): number {
  *     numbers. Silently substituting fake-but-plausible PnL for a real
  *     wallet is worse than a visible error for a financial product.
  */
-export class EvmProvider implements ChainProvider, TradesProvider {
+export class EvmProvider implements ChainProvider, TradesProvider, DailyRealizedPnlProvider {
   private readonly alchemy?: AlchemyClient;
   private readonly launchpad: LaunchpadResolver;
 
@@ -132,6 +132,47 @@ export class EvmProvider implements ChainProvider, TradesProvider {
           unrealized_pnl_pct: round2(unrealizedPnlPct),
         };
       });
+  }
+
+  // DailyRealizedPnlProvider implementation
+  async getWalletDailyRealizedPnl(address: string): Promise<DailyRealizedPnl[]> {
+    if (!isEvmAddress(address) || !this.alchemy) {
+      return [];
+    }
+
+    const { washResult } = await this.loadPortfolio(address, this.alchemy);
+
+    // Track realized PnL by day using the computeCostBasis callback
+    const byDay = new Map<string, { realizedPnlUsd: number; tradeCount: number }>();
+    const onRealize = (timestamp: string, deltaUsd: number): void => {
+      const day = timestamp.slice(0, 10); // YYYY-MM-DD
+      const existing = byDay.get(day);
+      if (existing) {
+        existing.realizedPnlUsd += deltaUsd;
+        existing.tradeCount += 1;
+      } else {
+        byDay.set(day, { realizedPnlUsd: deltaUsd, tradeCount: 1 });
+      }
+    };
+
+    // Process each token's trades to compute daily realized PnL
+    const byToken = new Map<string, Trade[]>();
+    for (const t of washResult.cleanTrades) {
+      const arr = byToken.get(t.tokenMintOrAddress);
+      if (arr) arr.push(t);
+      else byToken.set(t.tokenMintOrAddress, [t]);
+    }
+
+    for (const trades of byToken.values()) {
+      computeCostBasis(trades, onRealize);
+    }
+
+    // Convert to sorted array
+    const result: DailyRealizedPnl[] = Array.from(byDay.entries())
+      .map(([day, v]) => ({ day, realizedPnlUsd: round2(v.realizedPnlUsd), tradeCount: v.tradeCount }))
+      .sort((a, b) => a.day.localeCompare(b.day));
+
+    return result;
   }
 
   // TradesProvider implementation
