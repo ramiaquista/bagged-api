@@ -34,7 +34,12 @@ export const USER_LOGIN_RATE_LIMIT = { max: 5, timeWindow: "1 minute" } as const
 export const USER_SIGNUP_RATE_LIMIT = { max: 5, timeWindow: "10 minutes" } as const;
 
 const RANGE_DAYS: Record<"7d" | "30d" | "all", number> = { "7d": 7, "30d": 30, all: 365 };
-const RangeQuerySchema = z.object({ range: z.enum(["7d", "30d", "all"]).default("30d") });
+const RangeQuerySchema = z.object({
+  range: z.enum(["7d", "30d", "all"]).default("30d"),
+  walletIds: z
+    .union([z.string().min(1), z.array(z.string().min(1))])
+    .optional(),
+});
 const MonthQuerySchema = z.object({
   month: z
     .string()
@@ -269,19 +274,30 @@ export default async function userRoutes(app: FastifyInstance) {
   });
 
   app.get("/user/portfolio", async (req) => {
-    const { range } = RangeQuerySchema.parse(req.query);
+    const { range, walletIds: walletIdsParam } = RangeQuerySchema.parse(req.query);
     const days = RANGE_DAYS[range];
     const today = todayUtc();
     const fromDay = toDayString(addDaysUtc(today, -(days - 1)));
     const toDay = toDayString(today);
 
     const linked = await listWalletsForUser(app.db, req.userId!);
-    const walletIds = linked.map((w) => w.walletId);
+
+    // Same filter-to-selection pattern as /user/calendar below: every
+    // aggregate figure (PnL, positions, sparkline, win rate, primary
+    // wallet) scopes to the selected subset, but `wallets` in the response
+    // always lists the full set -- the selector UI needs to render every
+    // wallet as a choice regardless of which ones are currently active.
+    let filtered = linked;
+    if (walletIdsParam) {
+      const selectedIds = Array.isArray(walletIdsParam) ? walletIdsParam : [walletIdsParam];
+      filtered = linked.filter((w) => selectedIds.includes(w.walletId));
+    }
+    const walletIds = filtered.map((w) => w.walletId);
 
     const [realizedPnlUsd, series, livePerWallet] = await Promise.all([
       sumRealizedPnl(app.db, walletIds, fromDay, toDay),
       listDailyRealizedPnl(app.db, walletIds, fromDay, toDay),
-      Promise.all(linked.map((w) => getProvider(w.chain).getWalletPnl(w.address))),
+      Promise.all(filtered.map((w) => getProvider(w.chain).getWalletPnl(w.address))),
     ]);
 
     const unrealizedPnlUsd = livePerWallet.reduce((sum, p) => sum + p.unrealized_pnl_usd, 0);
@@ -317,7 +333,7 @@ export default async function userRoutes(app: FastifyInstance) {
     const winDays = [...trailing30ByDay.values()].filter((v) => v > 0).length;
     const winRate30d = trackedDays > 0 ? Math.round((winDays / trackedDays) * 100) : null;
 
-    const primaryWallet = linked[0] ?? null;
+    const primaryWallet = filtered[0] ?? null;
 
     return {
       range,
