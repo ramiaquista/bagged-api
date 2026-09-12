@@ -311,7 +311,7 @@ export async function buildTradesFromTransfers(
             } else {
               proceeds = Math.max(swapAmounts.amount0, swapAmounts.amount1);
             }
-            console.log(`[evmTradeBuilder] DEBUG: proceeds=${proceeds} (amount0=${swapAmounts.amount0.toFixed(6)}, amount1=${swapAmounts.amount1.toFixed(6)}, nativePriceUsd=${nativePriceUsd})`);
+            console.log(`[evmTradeBuilder] Swap event: token=${incompleteSell.asset} amount0=${swapAmounts.amount0.toFixed(6)} amount1=${swapAmounts.amount1.toFixed(6)} proceeds=${proceeds.toFixed(6)} (nativePriceUsd=${nativePriceUsd})`);
 
             // Filter out reward tokens: if proceeds > 10 RHO, it's likely a reward token (AF, GD, etc)
             // not native currency. Native currency swaps are typically < 1 RHO for small bonding curve sales.
@@ -329,8 +329,10 @@ export async function buildTradesFromTransfers(
                 timestamp: incompleteSell.timestamp,
                 preGraduation: incompleteSell.preGraduation,
               });
-              console.log(`[evmTradeBuilder] Swap event parsed: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} proceedsNative=${proceeds.toFixed(6)} proceedsUsd=${proceedsUsd.toFixed(2)}`);
+              console.log(`[evmTradeBuilder] ✅ Swap event recorded: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} proceedsNative=${proceeds.toFixed(6)} proceedsUsd=${proceedsUsd.toFixed(2)}`);
               continue;
+            } else {
+              console.log(`[evmTradeBuilder] ❌ Swap event FILTERED: token=${incompleteSell.asset} proceeds=${proceeds.toFixed(6)} (outside range 0-10 RHO)`);
             }
           }
         }

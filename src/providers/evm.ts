@@ -228,22 +228,13 @@ export class EvmProvider implements ChainProvider, TradesProvider, DailyRealized
         };
       })
       .filter((trade) => {
-        // Exclude reward tokens: trades with no cost basis and only small proceeds (sold quantity but 0 bought)
+        // Exclude reward tokens only: trades with no cost basis and only small proceeds (sold quantity but 0 bought)
         // These are airdropped tokens that shouldn't be counted as real trades
         const isRewardToken = trade.quantityBought === 0 && trade.costBasisUsd === 0 && trade.quantitySold > 0;
         if (isRewardToken) {
           console.log(`[evm.ts] Filtering out reward token: ${trade.symbol} (qty sold=${trade.quantitySold}, proceeds=$${trade.proceedsUsd})`);
           return false;
         }
-
-        // Exclude incomplete sales: bonding curve sales where proceeds weren't captured
-        // (quantityBought > 0 but proceedsUsd = 0 means the settlement wasn't found)
-        const isIncompleteSale = trade.quantityBought > 0 && trade.quantitySold > 0 && trade.proceedsUsd === 0;
-        if (isIncompleteSale) {
-          console.log(`[evm.ts] Filtering out incomplete sale: ${trade.symbol} (bought $${trade.costBasisUsd}, but no proceeds found - likely in escrow)`);
-          return false;
-        }
-
         return true;
       });
   }
