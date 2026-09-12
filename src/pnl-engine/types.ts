@@ -6,7 +6,19 @@ export interface Trade {
   chain: Chain;
   wallet: string;
   tokenMintOrAddress: string;
-  side: "buy" | "sell";
+  /**
+   * "transfer_out" is a token leaving the wallet with no resolvable market
+   * proceeds -- a plain wallet-to-wallet transfer, or an on-chain sell we
+   * genuinely couldn't price. It removes the quantity (and its
+   * proportional cost basis) from tracked holdings like a sell would, but
+   * recognizes no gain or loss: we don't know what happened to the tokens
+   * on the other end, so booking a "loss" would be a fabrication. Without
+   * this, tokens that leave via transfer stay phantom-"held" forever
+   * (quantityHeld never decrements) while their buy-side cost silently
+   * drags down realizedPnlUsd anywhere it's computed as proceeds-minus-
+   * total-bought instead of from this engine's own running total.
+   */
+  side: "buy" | "sell" | "transfer_out";
   quantity: number;
   priceUsd: number;
   timestamp: string; // ISO 8601

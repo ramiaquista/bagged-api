@@ -295,4 +295,89 @@ describe("mapHeliusSwapsToTrades", () => {
     // spent 1 wrapped SOL @ $100 for 2 tokens => $50/token
     expect(trades[0]?.priceUsd).toBeCloseTo(50, 6);
   });
+
+  it("maps a plain TRANSFER moving a token out of the wallet into a transfer_out Trade", () => {
+    // Regression: wallet 5BS6mdMD...NjS bought a token in two batches, sold
+    // the first on-market, and moved the small leftover second batch out
+    // via an ordinary wallet transfer (Helius type "TRANSFER", not "SWAP").
+    // That leftover previously vanished entirely (TRANSFER wasn't in
+    // TRADEABLE_TX_TYPES), leaving its cost basis permanently unresolved.
+    const tx = baseTx({
+      signature: "transfer-sig",
+      type: "TRANSFER",
+      source: "SYSTEM_PROGRAM",
+      accountData: [
+        {
+          account: WALLET,
+          nativeBalanceChange: 1_873_734, // ATA-close rent refund, not proceeds
+          tokenBalanceChanges: [
+            {
+              userAccount: WALLET,
+              mint: PUMP_MINT,
+              rawTokenAmount: { tokenAmount: "-11058002999", decimals: 6 },
+            },
+          ],
+        },
+      ],
+    });
+
+    const trades = mapHeliusSwapsToTrades(WALLET, [tx], SOL_USD);
+    expect(trades).toHaveLength(1);
+    const [t] = trades;
+    expect(t?.side).toBe("transfer_out");
+    expect(t?.tokenMintOrAddress).toBe(PUMP_MINT);
+    expect(t?.quantity).toBeCloseTo(11_058.002999, 3);
+    expect(t?.priceUsd).toBe(0);
+  });
+
+  it("ignores an inbound TRANSFER (tokens received, not sent out)", () => {
+    const tx = baseTx({
+      signature: "transfer-in-sig",
+      type: "TRANSFER",
+      source: "SYSTEM_PROGRAM",
+      accountData: [
+        {
+          account: WALLET,
+          nativeBalanceChange: 0,
+          tokenBalanceChanges: [
+            {
+              userAccount: WALLET,
+              mint: PUMP_MINT,
+              rawTokenAmount: { tokenAmount: "5000000", decimals: 6 },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(mapHeliusSwapsToTrades(WALLET, [tx], SOL_USD)).toHaveLength(0);
+  });
+
+  it("ignores a plain TRANSFER of a quote asset (SOL/USDC/USDT) -- not a tracked position", () => {
+    const tx = baseTx({
+      signature: "transfer-sol-sig",
+      type: "TRANSFER",
+      source: "SYSTEM_PROGRAM",
+      accountData: [
+        {
+          account: WALLET,
+          nativeBalanceChange: 0,
+          tokenBalanceChanges: [
+            {
+              userAccount: WALLET,
+              mint: WSOL_MINT,
+              rawTokenAmount: { tokenAmount: "-1000000000", decimals: 9 },
+            },
+            {
+              userAccount: WALLET,
+              mint: USDC_MINT,
+              rawTokenAmount: { tokenAmount: "-1000000", decimals: 6 },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(mapHeliusSwapsToTrades(WALLET, [tx], SOL_USD)).toHaveLength(0);
+  });
 });

@@ -71,6 +71,19 @@ export function computeCostBasis(
       continue;
     }
 
+    if (trade.side === "transfer_out") {
+      // Tokens left the wallet without a market sale -- stop counting them
+      // as held, and let their proportional cost basis leave with them
+      // unresolved. No realizedPnlUsd change and no onRealize callback:
+      // this isn't a realized gain or loss, just an open question about
+      // where the tokens went.
+      const avgCostPerUnit = quantityHeld > 0 ? costBasisUsd / quantityHeld : 0;
+      const transferQty = Math.min(trade.quantity, quantityHeld);
+      costBasisUsd -= transferQty * avgCostPerUnit;
+      quantityHeld -= transferQty;
+      continue;
+    }
+
     // side === "sell"
     const avgCostPerUnit = quantityHeld > 0 ? costBasisUsd / quantityHeld : 0;
     const soldQty = Math.min(trade.quantity, quantityHeld);

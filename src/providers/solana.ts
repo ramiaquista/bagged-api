@@ -202,6 +202,14 @@ export class SolanaProvider implements ChainProvider, DailyRealizedPnlProvider, 
         quantityHeld: round(acc.quantityHeld, 6),
         holdingDurationMs,
       };
+    }).filter((trade) => {
+      // Exclude tokens with no market activity at all -- e.g. an
+      // airdropped/claimed mint that was only ever forwarded elsewhere via
+      // a plain transfer (side="transfer_out"). A transfer_out never
+      // counts toward quantityBought/quantitySold, so this only catches
+      // tokens with literally nothing bought or sold, not real open
+      // positions (those have quantityBought > 0).
+      return !(trade.quantityBought === 0 && trade.quantitySold === 0);
     });
   }
 

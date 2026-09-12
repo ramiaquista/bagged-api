@@ -82,6 +82,37 @@ describe("computeCostBasis", () => {
     expect(result.quantityHeld).toBe(10);
     expect(result.costBasisUsd).toBe(10);
   });
+
+  it("removes a transfer_out's quantity and cost basis without touching realizedPnlUsd", () => {
+    // Regression: bought 200 in two batches, sold the first 100 for a real
+    // profit, then the leftover 100 was moved out via a plain wallet
+    // transfer (not a sale) -- e.g. BUZZ on wallet 5BS6mdMD...NjS. Before
+    // this fix there was no way to represent "left, not sold": the
+    // leftover's cost sat forever as either phantom quantityHeld or (in
+    // callers computing PnL as proceeds-minus-total-bought) a fabricated
+    // loss.
+    const trades = [
+      trade({ side: "buy", quantity: 100, priceUsd: 1, timestamp: "2026-01-01T00:00:00.000Z" }),
+      trade({ side: "sell", quantity: 100, priceUsd: 2, timestamp: "2026-01-01T00:00:01.000Z" }),
+      trade({ side: "buy", quantity: 100, priceUsd: 1, timestamp: "2026-01-02T00:00:00.000Z" }),
+      trade({ side: "transfer_out", quantity: 100, priceUsd: 0, timestamp: "2026-01-03T00:00:00.000Z" }),
+    ];
+    const result = computeCostBasis(trades);
+    expect(result.realizedPnlUsd).toBeCloseTo(100, 6); // only the real, sold round-trip
+    expect(result.quantityHeld).toBe(0); // the leftover left with the transfer
+    expect(result.costBasisUsd).toBe(0); // its cost basis left with it, not booked as a loss
+  });
+
+  it("clamps a transfer_out larger than what's actually held", () => {
+    const trades = [
+      trade({ side: "buy", quantity: 50, priceUsd: 1, timestamp: "2026-01-01T00:00:00.000Z" }),
+      trade({ side: "transfer_out", quantity: 500, priceUsd: 0, timestamp: "2026-01-02T00:00:00.000Z" }),
+    ];
+    const result = computeCostBasis(trades);
+    expect(result.quantityHeld).toBe(0);
+    expect(result.costBasisUsd).toBe(0);
+    expect(result.realizedPnlUsd).toBe(0);
+  });
 });
 
 describe("filterWashTrades", () => {
@@ -118,6 +149,16 @@ describe("filterWashTrades", () => {
     const trades = [
       trade({ side: "buy", quantity: 100, priceUsd: 1, timestamp: "2026-01-01T00:00:00.000Z" }),
       trade({ side: "sell", quantity: 40, priceUsd: 1.001, timestamp: "2026-01-01T00:00:01.000Z" }),
+    ];
+    const result = filterWashTrades(trades);
+    expect(result.excludedCount).toBe(0);
+    expect(result.cleanTrades).toHaveLength(2);
+  });
+
+  it("never pairs a transfer_out as one leg of a wash trade, even with matching quantity/timing", () => {
+    const trades = [
+      trade({ side: "buy", quantity: 100, priceUsd: 1, timestamp: "2026-01-01T00:00:00.000Z" }),
+      trade({ side: "transfer_out", quantity: 100, priceUsd: 0, timestamp: "2026-01-01T00:00:01.000Z" }),
     ];
     const result = filterWashTrades(trades);
     expect(result.excludedCount).toBe(0);
@@ -182,6 +223,20 @@ describe("resolveRugs", () => {
     const trades = [
       trade({ side: "buy", quantity: 1000, priceUsd: 1, timestamp: "2026-01-01T00:00:00.000Z" }),
       trade({ side: "buy", quantity: 1000, priceUsd: 0.5, timestamp: "2026-01-02T00:00:00.000Z" }),
+    ];
+    const result = resolveRugs(trades);
+    expect(result.resolvedCount).toBe(0);
+  });
+
+  it("does not treat a trailing transfer_out's $0 price as a collapse signal", () => {
+    // A token bought and still legitimately held, later moved out via a
+    // plain transfer -- the transfer's $0 price must not read as "price
+    // collapsed to zero", which would wrongly flag a perfectly fine token
+    // as rugged.
+    const trades = [
+      trade({ side: "buy", quantity: 1000, priceUsd: 1, timestamp: "2026-01-01T00:00:00.000Z" }),
+      trade({ side: "buy", quantity: 1000, priceUsd: 1.1, timestamp: "2026-01-02T00:00:00.000Z" }),
+      trade({ side: "transfer_out", quantity: 500, priceUsd: 0, timestamp: "2026-01-03T00:00:00.000Z" }),
     ];
     const result = resolveRugs(trades);
     expect(result.resolvedCount).toBe(0);

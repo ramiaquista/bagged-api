@@ -500,7 +500,26 @@ export async function buildTradesFromTransfers(
         continue;
       }
 
-      console.log(`[evmTradeBuilder] Incomplete sell: token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)} ESCROW (could not resolve proceeds)`);
+      // Genuinely couldn't find any proceeds for this token leaving the
+      // wallet -- record it as a transfer_out rather than silently
+      // dropping it. Without this, a buy that's later moved out this way
+      // (a plain transfer to another address, or a sell we truly can't
+      // price) left its cost basis stuck forever: quantityHeld never
+      // decremented (the tokens aren't actually held anymore) and, in a
+      // caller computing realized PnL as proceeds-minus-total-bought, that
+      // stuck cost showed up as a full loss it never actually was.
+      trades.push({
+        txSignature: incompleteSell.hash,
+        chain,
+        wallet,
+        tokenMintOrAddress: incompleteSell.tokenAddress,
+        side: "transfer_out",
+        quantity: incompleteSell.quantity,
+        priceUsd: 0,
+        timestamp: incompleteSell.timestamp,
+        preGraduation: incompleteSell.preGraduation,
+      });
+      console.log(`[evmTradeBuilder] Recorded as transfer_out (no resolvable proceeds): token=${incompleteSell.asset} qty=${incompleteSell.quantity.toFixed(2)}`);
     }
   }
 

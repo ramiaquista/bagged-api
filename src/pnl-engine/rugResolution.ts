@@ -56,10 +56,24 @@ export function resolveRugs(trades: Trade[]): RugResolutionResult {
     // dust after a full exit needs a scale-relative floor, not a fixed
     // absolute one.
     let maxQuantitySeen = 0;
+    // Last trade that actually carried a market price -- a transfer_out's
+    // $0 price must never stand in for "the price collapsed to zero" below.
+    let lastPricedTrade: Trade | undefined;
 
     for (const trade of sorted) {
+      if (trade.side === "transfer_out") {
+        // Tokens left without a sale -- stop counting them as held (same
+        // treatment as costBasis.ts), but this carries no price signal.
+        const avgCost = quantityHeld > 0 ? costBasisUsd / quantityHeld : 0;
+        const transferQty = Math.min(trade.quantity, quantityHeld);
+        costBasisUsd -= transferQty * avgCost;
+        quantityHeld -= transferQty;
+        continue;
+      }
+
       if (!Number.isFinite(trade.priceUsd) || trade.priceUsd < 0) continue;
       if (trade.priceUsd > peakPriceUsd) peakPriceUsd = trade.priceUsd;
+      lastPricedTrade = trade;
 
       if (trade.side === "buy") {
         quantityHeld += trade.quantity;
@@ -74,12 +88,11 @@ export function resolveRugs(trades: Trade[]): RugResolutionResult {
     }
 
     const quantityDustFloor = Math.max(maxQuantitySeen * 1e-6, 1e-9);
-    const lastTrade = sorted[sorted.length - 1];
-    if (!lastTrade || quantityHeld <= quantityDustFloor || peakPriceUsd <= 0 || costBasisUsd <= 0) {
+    if (!lastPricedTrade || quantityHeld <= quantityDustFloor || peakPriceUsd <= 0 || costBasisUsd <= 0) {
       continue;
     }
 
-    const collapsed = lastTrade.priceUsd <= peakPriceUsd * PRICE_COLLAPSE_RATIO;
+    const collapsed = lastPricedTrade.priceUsd <= peakPriceUsd * PRICE_COLLAPSE_RATIO;
     if (!collapsed) continue;
 
     resolvedCount += 1;

@@ -52,6 +52,9 @@ export function filterWashTrades(trades: Trade[]): WashTradeFilterResult {
       if (!current || !next) continue;
       if (excluded.has(current) || excluded.has(next)) continue;
       if (current.side === next.side) continue;
+      // A transfer_out isn't a market fill -- never treat it as one leg of
+      // a wash-trade round-trip, no matter how well quantity/timing line up.
+      if (current.side === "transfer_out" || next.side === "transfer_out") continue;
 
       const dtMs = Math.abs(
         new Date(next.timestamp).getTime() - new Date(current.timestamp).getTime(),

@@ -248,6 +248,15 @@ export class EvmProvider implements ChainProvider, TradesProvider, DailyRealized
           console.log(`[evm.ts] Filtering out reward token: ${trade.symbol} (qty sold=${trade.quantitySold}, proceeds=$${trade.proceedsUsd})`);
           return false;
         }
+        // Exclude tokens with no market activity at all -- e.g. an
+        // airdropped/multi-token-claim mint that was only ever forwarded
+        // elsewhere via a plain transfer (side="transfer_out"). Since a
+        // transfer_out never counts toward quantityBought/quantitySold,
+        // this only catches tokens with literally nothing bought or sold,
+        // not real open positions (those have quantityBought > 0).
+        if (trade.quantityBought === 0 && trade.quantitySold === 0) {
+          return false;
+        }
         return true;
       });
   }

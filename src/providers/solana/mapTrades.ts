@@ -57,6 +57,19 @@ const TRADEABLE_TX_TYPES = new Set(["SWAP", "CREATE"]);
  * seen in some aggregator routes), the quote value is split evenly across
  * those legs rather than priced individually, since there's no reliable way
  * to attribute an aggregate quote amount to each leg from this data alone.
+ *
+ * PLAIN TRANSFERS: a `TRANSFER`-type transaction (Helius's classification
+ * for an ordinary wallet-to-wallet SPL transfer, not a swap) that moves a
+ * non-quote token OUT of the wallet is recorded as a `transfer_out` Trade
+ * (quantity only, $0 price -- see pnl-engine/costBasis.ts) rather than
+ * silently dropped. Confirmed against a real wallet: a token bought in two
+ * batches where only the first was later sold on-market -- the second,
+ * small leftover was sent elsewhere via a plain transfer -- left that
+ * leftover's cost basis stuck forever with no resolution, both overstating
+ * quantityHeld (the tokens aren't there anymore) and, wherever a caller
+ * computed realized PnL as proceeds-minus-total-bought instead of from this
+ * engine's own running total, showing that leftover as a full loss it never
+ * actually was.
  */
 export function mapHeliusSwapsToTrades(
   wallet: string,
@@ -70,16 +83,12 @@ export function mapHeliusSwapsToTrades(
   for (const tx of transactions) {
     if (tx.transactionError) continue;
     if (!tx.signature || !Number.isFinite(tx.timestamp)) continue;
-    if (!TRADEABLE_TX_TYPES.has(tx.type)) continue;
 
-    const solUsdPrice = nearestSolPrice(historicalPrices, tx.timestamp * 1000) ?? currentSolUsdPrice;
+    const isTradeable = TRADEABLE_TX_TYPES.has(tx.type);
+    const isPlainTransfer = tx.type === "TRANSFER";
+    if (!isTradeable && !isPlainTransfer) continue;
 
-    let netSolLamports = 0;
-    for (const acc of tx.accountData ?? []) {
-      if (acc.account === wallet) {
-        netSolLamports += acc.nativeBalanceChange;
-      }
-    }
+    const isoTimestamp = new Date(tx.timestamp * 1000).toISOString();
 
     const netByMint = new Map<string, number>();
     for (const acc of tx.accountData ?? []) {
@@ -90,6 +99,40 @@ export function mapHeliusSwapsToTrades(
         if (!Number.isFinite(raw) || !Number.isFinite(decimals)) continue;
         const qty = raw / 10 ** decimals;
         netByMint.set(change.mint, (netByMint.get(change.mint) ?? 0) + qty);
+      }
+    }
+
+    if (isPlainTransfer) {
+      // Quote assets moving between the user's own wallets aren't a
+      // memecoin position -- this system doesn't track SOL/USDC/USDT
+      // holdings as "positions", only what they bought with them.
+      netByMint.delete(WSOL_MINT);
+      netByMint.delete(USDC_MINT);
+      netByMint.delete(USDT_MINT);
+
+      for (const [mint, netQty] of netByMint) {
+        if (netQty >= 0 || Math.abs(netQty) <= DUST_QTY) continue; // only outbound transfers -- see doc comment
+        trades.push({
+          txSignature: tx.signature,
+          chain: "solana",
+          wallet,
+          tokenMintOrAddress: mint,
+          side: "transfer_out",
+          quantity: Math.abs(netQty),
+          priceUsd: 0,
+          timestamp: isoTimestamp,
+          preGraduation: false,
+        });
+      }
+      continue;
+    }
+
+    const solUsdPrice = nearestSolPrice(historicalPrices, tx.timestamp * 1000) ?? currentSolUsdPrice;
+
+    let netSolLamports = 0;
+    for (const acc of tx.accountData ?? []) {
+      if (acc.account === wallet) {
+        netSolLamports += acc.nativeBalanceChange;
       }
     }
 
@@ -118,7 +161,6 @@ export function mapHeliusSwapsToTrades(
     }
 
     const perLegQuoteUsd = quoteUsd / baseEntries.length;
-    const isoTimestamp = new Date(tx.timestamp * 1000).toISOString();
     const preGraduation = tx.source === "PUMP_FUN";
 
     for (const [mint, netQty] of baseEntries) {
