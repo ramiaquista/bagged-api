@@ -303,10 +303,15 @@ export async function buildTradesFromTransfers(
           console.log(`[evmTradeBuilder] DEBUG: swapAmounts=${swapAmounts ? JSON.stringify(swapAmounts) : "null"}`);
 
           if (swapAmounts) {
-            // Use whichever amount is non-zero as proceeds
-            // (amount0 or amount1 depending on token ordering in the pool)
-            const proceeds = Math.max(swapAmounts.amount0, swapAmounts.amount1);
-            console.log(`[evmTradeBuilder] DEBUG: proceeds=${proceeds} (nativePriceUsd=${nativePriceUsd})`);
+            // For hood.fun bonding curves, when both amounts are non-zero,
+            // pick the smaller one (typically proceeds). When only one is non-zero, pick that.
+            let proceeds = 0;
+            if (swapAmounts.amount0 > 0 && swapAmounts.amount1 > 0) {
+              proceeds = Math.min(swapAmounts.amount0, swapAmounts.amount1);
+            } else {
+              proceeds = Math.max(swapAmounts.amount0, swapAmounts.amount1);
+            }
+            console.log(`[evmTradeBuilder] DEBUG: proceeds=${proceeds} (amount0=${swapAmounts.amount0.toFixed(6)}, amount1=${swapAmounts.amount1.toFixed(6)}, nativePriceUsd=${nativePriceUsd})`);
 
             // Filter out reward tokens: if proceeds > 10 RHO, it's likely a reward token (AF, GD, etc)
             // not native currency. Native currency swaps are typically < 1 RHO for small bonding curve sales.
