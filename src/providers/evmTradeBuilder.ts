@@ -303,13 +303,23 @@ export async function buildTradesFromTransfers(
           console.log(`[evmTradeBuilder] DEBUG: swapAmounts=${swapAmounts ? JSON.stringify(swapAmounts) : "null"}`);
 
           if (swapAmounts) {
-            // For hood.fun bonding curves, when both amounts are non-zero,
-            // pick the smaller one (typically proceeds). When only one is non-zero, pick that.
+            // For hood.fun bonding curves: pick the non-zero (or larger) amount
+            // amount0 and amount1 are often asymmetric - one is the token, one is proceeds
+            // When one is ~0, pick the other; when both are significant, pick the larger
+            const THRESHOLD = 0.0001; // Treat as "zero" if smaller than this
+            const a0Significant = swapAmounts.amount0 > THRESHOLD;
+            const a1Significant = swapAmounts.amount1 > THRESHOLD;
+
             let proceeds = 0;
-            if (swapAmounts.amount0 > 0 && swapAmounts.amount1 > 0) {
-              proceeds = Math.min(swapAmounts.amount0, swapAmounts.amount1);
-            } else {
+            if (a0Significant && a1Significant) {
+              // Both significant: pick larger (likelier to be proceeds than internal transfer)
               proceeds = Math.max(swapAmounts.amount0, swapAmounts.amount1);
+            } else if (a0Significant) {
+              // Only amount0 is significant
+              proceeds = swapAmounts.amount0;
+            } else if (a1Significant) {
+              // Only amount1 is significant
+              proceeds = swapAmounts.amount1;
             }
             console.log(`[evmTradeBuilder] Swap event: token=${incompleteSell.asset} amount0=${swapAmounts.amount0.toFixed(6)} amount1=${swapAmounts.amount1.toFixed(6)} proceeds=${proceeds.toFixed(6)} (nativePriceUsd=${nativePriceUsd})`);
 
