@@ -60,7 +60,17 @@ export interface HeliusEnhancedTransaction {
 
 export interface HeliusAsset {
   id: string;
-  content?: { metadata?: { symbol?: string; name?: string } };
+  content?: {
+    metadata?: { symbol?: string; name?: string };
+    links?: { image?: string };
+    /** Helius's own CDN-proxied copy of the first file (resized/cached, generally more reliable to load than the raw IPFS gateway URL in `links.image`). */
+    files?: Array<{ cdn_uri?: string }>;
+  };
+}
+
+/** Prefers Helius's CDN-proxied copy over the raw links.image (IPFS gateway URLs can be slow/flaky to load directly). */
+export function assetImageUrl(asset: HeliusAsset | undefined): string | undefined {
+  return asset?.content?.files?.[0]?.cdn_uri ?? asset?.content?.links?.image;
 }
 
 function withTimeout(): AbortSignal {

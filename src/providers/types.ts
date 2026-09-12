@@ -66,6 +66,18 @@ export interface TokenTradeHistory {
   realizedPnlUsd: number;
   quantityHeld: number;
   holdingDurationMs?: number;
+  /**
+   * Reliably available on Solana (pump.fun-style launches mint proper
+   * Metaplex metadata with an image at creation time -- see solana.ts's
+   * getWalletTrades). No equivalent on EVM chains: ERC-20 has no on-chain
+   * image standard at all, and third-party logo lists (Alchemy's curated
+   * set, DexScreener's opt-in project profiles) don't reliably cover
+   * bonding-curve launchpad tokens (hood.fun, four.meme) -- confirmed by
+   * hand for both during this work, so EVM trades intentionally leave this
+   * undefined rather than surface a mostly-null field. The client falls
+   * back to a letter badge when absent.
+   */
+  imageUrl?: string;
 }
 
 /** True when a provider also implements the optional trades-history capability. */

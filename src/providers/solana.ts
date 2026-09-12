@@ -5,7 +5,7 @@ import type { Chain } from "../schemas/chain.js";
 import type { WalletPnl } from "../schemas/pnl.js";
 import type { Position } from "../schemas/position.js";
 import { fetchHistoricalSolPriceSeries } from "./solana/binanceClient.js";
-import { fetchAssetMetadata, fetchRecentSwaps } from "./solana/heliusClient.js";
+import { assetImageUrl, fetchAssetMetadata, fetchRecentSwaps } from "./solana/heliusClient.js";
 import { fetchUsdPrices } from "./solana/jupiterClient.js";
 import { mapHeliusSwapsToTrades, WSOL_MINT } from "./solana/mapTrades.js";
 import type { ChainProvider, DailyRealizedPnl, DailyRealizedPnlProvider, TokenTradeHistory, TradesProvider } from "./types.js";
@@ -181,10 +181,12 @@ export class SolanaProvider implements ChainProvider, DailyRealizedPnlProvider, 
         : undefined;
 
       const symbol = metadata.get(mint)?.content?.metadata?.symbol || mint.slice(0, 6);
+      const imageUrl = assetImageUrl(metadata.get(mint));
 
       return {
         symbol,
         tokenAddress: mint,
+        imageUrl,
         quantityBought: round(quantityBought, 6),
         costBasisUsd: round(costBasisUsd, 2), // Total spent buying, for display -- not acc.costBasisUsd (remaining cost basis of what's still held)
         quantitySold: round(quantitySold, 6),
