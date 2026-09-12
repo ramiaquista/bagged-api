@@ -40,6 +40,9 @@ const MonthQuerySchema = z.object({
     .string()
     .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "month must be YYYY-MM")
     .optional(),
+  walletIds: z
+    .union([z.string().min(1), z.array(z.string().min(1))])
+    .optional(),
 });
 const WalletParamsSchema = z.object({ walletId: z.string().min(1) });
 
@@ -308,12 +311,13 @@ export default async function userRoutes(app: FastifyInstance) {
       linkedWallets: linked.length,
       winRate30d,
       primaryWallet: primaryWallet ? { chain: primaryWallet.chain, address: primaryWallet.address } : null,
+      wallets: linked.map((w) => ({ walletId: w.walletId, chain: w.chain, address: w.address })),
       sparkline,
     };
   });
 
   app.get("/user/calendar", async (req) => {
-    const { month } = MonthQuerySchema.parse(req.query);
+    const { month, walletIds: walletIdsParam } = MonthQuerySchema.parse(req.query);
     const today = todayUtc();
     const [year, monthNum] = month
       ? month.split("-").map((n) => Number(n))
@@ -322,7 +326,18 @@ export default async function userRoutes(app: FastifyInstance) {
     const monthEnd = new Date(Date.UTC(year!, monthNum!, 0)); // last day of the month
 
     const linked = await listWalletsForUser(app.db, req.userId!);
-    const walletIds = linked.map((w) => w.walletId);
+
+    // Filter to selected wallets if provided, otherwise use all wallets
+    let walletIds: string[];
+    if (walletIdsParam && walletIdsParam.length > 0) {
+      const selectedIds = Array.isArray(walletIdsParam) ? walletIdsParam : [walletIdsParam];
+      walletIds = linked
+        .filter((w) => selectedIds.includes(w.walletId))
+        .map((w) => w.walletId);
+    } else {
+      walletIds = linked.map((w) => w.walletId);
+    }
+
     const rows = await listDailyRealizedPnl(app.db, walletIds, toDayString(monthStart), toDayString(monthEnd));
 
     const byDay = new Map<string, { realizedPnlUsd: number; tradeCount: number }>();
