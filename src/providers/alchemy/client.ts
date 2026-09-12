@@ -25,6 +25,14 @@ export interface AlchemyClient {
   getAllTransfers(address: string): Promise<AssetTransfer[]>;
   getTokenPriceUsd(tokenAddress: string): Promise<number | null>;
   getNativePriceUsd(): Promise<number | null>;
+  /**
+   * Native/USD price at (or nearest to) a specific point in time. Trades
+   * must be costed/proceeds-priced at the price when they happened, not
+   * today's price -- see README on the flat-current-price bug that made
+   * every historical trade on a wallet price identically regardless of
+   * which day it happened.
+   */
+  getHistoricalNativePriceUsd(timestamp: string): Promise<number | null>;
   /** Get transaction receipt with logs for parsing swap events. */
   getTransactionReceipt(txHash: string): Promise<TransactionReceipt | null>;
   /** Query ERC-20 balanceOf at a specific block height. */
@@ -35,6 +43,8 @@ export interface TransactionReceipt {
   transactionHash: string;
   blockNumber: string;
   gasUsed: string;
+  /** Actual wei-per-gas paid (post EIP-1559 base+priority fee); combine with gasUsed for the real fee paid. */
+  effectiveGasPrice: string;
   logs: Array<{
     topics: string[];
     data: string;
@@ -193,12 +203,53 @@ export class AlchemyHttpClient implements AlchemyClient {
     return extractUsd(json.data?.[0]?.prices);
   }
 
+  /**
+   * Alchemy's Prices API `/tokens/historical` endpoint, queried in a tight
+   * window around `timestamp` and resolved to the nearest data point.
+   * `interval: "5m"` is the finest granularity Alchemy offers; that's well
+   * within the precision this product needs (a few minutes either side of
+   * a trade doesn't move ETH/USD enough to matter for cost basis).
+   */
+  async getHistoricalNativePriceUsd(timestamp: string): Promise<number | null> {
+    try {
+      const target = new Date(timestamp).getTime();
+      if (Number.isNaN(target)) return null;
+      const startTime = new Date(target - 30 * 60 * 1000).toISOString();
+      const endTime = new Date(target + 30 * 60 * 1000).toISOString();
+      const res = await fetchWithTimeout(`${this.pricesBaseUrl}/tokens/historical`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ symbol: this.nativeSymbol, startTime, endTime, interval: "5m" }),
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as { data?: Array<{ value: string; timestamp: string }> };
+      const points = json.data ?? [];
+      if (points.length === 0) return null;
+
+      let closest = points[0]!;
+      let closestDiffMs = Math.abs(new Date(closest.timestamp).getTime() - target);
+      for (const point of points) {
+        const diffMs = Math.abs(new Date(point.timestamp).getTime() - target);
+        if (diffMs < closestDiffMs) {
+          closest = point;
+          closestDiffMs = diffMs;
+        }
+      }
+      const value = Number(closest.value);
+      return Number.isFinite(value) ? value : null;
+    } catch (err) {
+      console.error(`Failed to get historical ${this.nativeSymbol} price for ${timestamp}:`, err);
+      return null;
+    }
+  }
+
   async getTransactionReceipt(txHash: string): Promise<TransactionReceipt | null> {
     try {
       const receipt = await rpcCall<{
         transactionHash: string;
         blockNumber: string;
         gasUsed: string;
+        effectiveGasPrice: string;
         logs: Array<{ topics: string[]; data: string; address: string }>;
       }>(this.rpcUrl, "eth_getTransactionReceipt", [txHash]);
       return receipt;

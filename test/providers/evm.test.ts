@@ -17,6 +17,9 @@ function fakeAlchemy(overrides: Partial<AlchemyClient> = {}): AlchemyClient {
     getAllTransfers: async () => [],
     getTokenPriceUsd: async () => null,
     getNativePriceUsd: async () => null,
+    getHistoricalNativePriceUsd: async () => null,
+    getTransactionReceipt: async () => null,
+    getTokenBalance: async () => null,
     ...overrides,
   };
 }

@@ -164,6 +164,12 @@ export class EvmProvider implements ChainProvider, TradesProvider, DailyRealized
     }
 
     for (const trades of byToken.values()) {
+      // Same reward-token exclusion as getWalletTrades: a token with sells
+      // but no buy (airdropped/claimed, e.g. AF, GD) has no real cost basis
+      // and isn't a trade -- counting its small proceeds as "realized PnL"
+      // here while excluding it from trade history would silently make the
+      // calendar and trade history disagree with each other.
+      if (!trades.some((t) => t.side === "buy")) continue;
       computeCostBasis(trades, onRealize);
     }
 
