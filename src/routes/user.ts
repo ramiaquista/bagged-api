@@ -251,6 +251,23 @@ export default async function userRoutes(app: FastifyInstance) {
     return { trades };
   });
 
+  app.post("/user/wallets/:walletId/recompute-pnl", async (req) => {
+    const { walletId } = WalletParamsSchema.parse(req.params);
+    const wallet = await findOrCreateWallet(app.db, "ethereum", "0x0"); // placeholder, will be replaced
+
+    // Verify the wallet belongs to the user
+    const linked = await listWalletsForUser(app.db, req.userId!);
+    const walletLink = linked.find((w) => w.walletId === walletId);
+    if (!walletLink) {
+      throw ApiError.notFound("No linked wallet found with that id");
+    }
+
+    // Force recomputation of daily PnL for this wallet
+    console.error(`[API] User ${req.userId} requesting PnL recomputation for wallet ${walletId} (${walletLink.chain} ${walletLink.address})`);
+    await recomputeDailyPnlForWallet(app, walletId, walletLink.chain, walletLink.address);
+    return { status: "recomputed" };
+  });
+
   app.get("/user/portfolio", async (req) => {
     const { range } = RangeQuerySchema.parse(req.query);
     const days = RANGE_DAYS[range];
