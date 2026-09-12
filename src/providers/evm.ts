@@ -193,39 +193,59 @@ export class EvmProvider implements ChainProvider, TradesProvider, DailyRealized
       }
     }
 
-    return positions.map((p) => {
-      const tokenTrades = tradesByToken.get(p.tokenAddress) || [];
-      const buyTrades = tokenTrades.filter((t) => t.side === "buy");
-      const sellTrades = tokenTrades.filter((t) => t.side === "sell");
-      const quantityBought = buyTrades.reduce((sum, t) => sum + t.quantity, 0);
-      const quantitySold = sellTrades.reduce((sum, t) => sum + t.quantity, 0);
+    return positions
+      .map((p) => {
+        const tokenTrades = tradesByToken.get(p.tokenAddress) || [];
+        const buyTrades = tokenTrades.filter((t) => t.side === "buy");
+        const sellTrades = tokenTrades.filter((t) => t.side === "sell");
+        const quantityBought = buyTrades.reduce((sum, t) => sum + t.quantity, 0);
+        const quantitySold = sellTrades.reduce((sum, t) => sum + t.quantity, 0);
 
-      // Calculate cost basis directly from buy trades
-      // (not from p.costBasis which may be 0 if position is fully liquidated)
-      const costBasisUsd = buyTrades.reduce((sum, t) => sum + (t.quantity * t.priceUsd), 0);
-      const proceedsUsd = tokenTrades
-        .filter((t) => t.side === "sell")
-        .reduce((sum, t) => sum + t.quantity * t.priceUsd, 0);
+        // Calculate cost basis directly from buy trades
+        // (not from p.costBasis which may be 0 if position is fully liquidated)
+        const costBasisUsd = buyTrades.reduce((sum, t) => sum + (t.quantity * t.priceUsd), 0);
+        const proceedsUsd = tokenTrades
+          .filter((t) => t.side === "sell")
+          .reduce((sum, t) => sum + t.quantity * t.priceUsd, 0);
 
-      const lastTradeTimestamp = tokenTrades.length > 0
-        ? tokenTrades[tokenTrades.length - 1]?.timestamp
-        : firstTradeTimestamp;
-      const holdingDurationMs = lastTradeTimestamp
-        ? new Date().getTime() - new Date(lastTradeTimestamp).getTime()
-        : undefined;
+        const lastTradeTimestamp = tokenTrades.length > 0
+          ? tokenTrades[tokenTrades.length - 1]?.timestamp
+          : firstTradeTimestamp;
+        const holdingDurationMs = lastTradeTimestamp
+          ? new Date().getTime() - new Date(lastTradeTimestamp).getTime()
+          : undefined;
 
-      return {
-        symbol: p.symbol,
-        tokenAddress: p.tokenAddress,
-        quantityBought: round2(quantityBought),
-        costBasisUsd: round2(costBasisUsd),  // Calculate from buys, not from p.costBasis (which is 0 for liquidated positions)
-        quantitySold: round2(quantitySold),
-        proceedsUsd: round2(proceedsUsd),
-        realizedPnlUsd: round2(proceedsUsd - costBasisUsd),  // Recalculate PnL: proceeds - cost
-        quantityHeld: round2(p.costBasis.quantityHeld),
-        holdingDurationMs,
-      };
-    });
+        return {
+          symbol: p.symbol,
+          tokenAddress: p.tokenAddress,
+          quantityBought: round2(quantityBought),
+          costBasisUsd: round2(costBasisUsd),  // Calculate from buys, not from p.costBasis (which is 0 for liquidated positions)
+          quantitySold: round2(quantitySold),
+          proceedsUsd: round2(proceedsUsd),
+          realizedPnlUsd: round2(proceedsUsd - costBasisUsd),  // Recalculate PnL: proceeds - cost
+          quantityHeld: round2(p.costBasis.quantityHeld),
+          holdingDurationMs,
+        };
+      })
+      .filter((trade) => {
+        // Exclude reward tokens: trades with no cost basis and only small proceeds (sold quantity but 0 bought)
+        // These are airdropped tokens that shouldn't be counted as real trades
+        const isRewardToken = trade.quantityBought === 0 && trade.costBasisUsd === 0 && trade.quantitySold > 0;
+        if (isRewardToken) {
+          console.log(`[evm.ts] Filtering out reward token: ${trade.symbol} (qty sold=${trade.quantitySold}, proceeds=$${trade.proceedsUsd})`);
+          return false;
+        }
+
+        // Exclude incomplete sales: bonding curve sales where proceeds weren't captured
+        // (quantityBought > 0 but proceedsUsd = 0 means the settlement wasn't found)
+        const isIncompleteSale = trade.quantityBought > 0 && trade.quantitySold > 0 && trade.proceedsUsd === 0;
+        if (isIncompleteSale) {
+          console.log(`[evm.ts] Filtering out incomplete sale: ${trade.symbol} (bought $${trade.costBasisUsd}, but no proceeds found - likely in escrow)`);
+          return false;
+        }
+
+        return true;
+      });
   }
 
   private async loadPortfolio(address: string, alchemy: AlchemyClient) {
