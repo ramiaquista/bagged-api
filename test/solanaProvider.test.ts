@@ -37,6 +37,15 @@ vi.mock("../src/providers/solana/jupiterClient.js", () => ({
   fetchUsdPrices: vi.fn(),
 }));
 
+// No historical series -> mapHeliusSwapsToTrades falls back to the
+// per-mint current price from jupiterClient's mock above, same as before
+// historical pricing existed. Keeps these fixtures deterministic and
+// offline instead of hitting the real Binance API.
+vi.mock("../src/providers/solana/binanceClient.js", () => ({
+  fetchHistoricalSolPriceSeries: vi.fn().mockResolvedValue([]),
+  nearestSolPrice: vi.fn().mockReturnValue(null),
+}));
+
 describe("SolanaProvider (mocked Helius/Jupiter)", () => {
   beforeEach(() => {
     vi.resetModules();

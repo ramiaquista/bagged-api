@@ -1,4 +1,5 @@
 import type { Trade } from "../../pnl-engine/types.js";
+import { nearestSolPrice, type PricePoint } from "./binanceClient.js";
 import type { HeliusEnhancedTransaction } from "./heliusClient.js";
 
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";
@@ -42,16 +43,14 @@ const TRADEABLE_TX_TYPES = new Set(["SWAP", "CREATE"]);
  * pump.fun-style memecoin trading, which is almost always vs. SOL) can't be
  * priced from this transaction alone and is skipped rather than guessed at.
  *
- * KNOWN LIMITATION 2 -- historical SOL price: SOL-denominated fills are
- * priced using the *current* SOL/USD price (passed in as `solUsdPrice`,
- * from Jupiter), not the historical price at the fill's own block time.
- * Jupiter's price API only serves current prices, and a proper historical
- * backfill (a paid data source, or reconstructing price from historical
- * SOL/USDC pool reserves block-by-block) was out of scope for this pass.
- * This skews *realized* PnL for old trades if SOL's price has moved a lot
- * since; unrealized PnL (current price on both legs) is unaffected. See the
- * Item 2 hand-off report for how much this mattered on the wallets checked
- * by hand.
+ * HISTORICAL SOL PRICE: SOL-denominated fills are priced from
+ * `historicalPrices` (Binance SOLUSDT klines, see binanceClient.ts) at each
+ * fill's own block time, nearest-match -- not the current price. Previously
+ * this used one flat *current* SOL/USD snapshot for every fill regardless
+ * of age, which silently priced week-old trades at today's rate. Falls back
+ * to `currentSolUsdPrice` per fill only when no historical series was
+ * supplied, or it came back empty (Binance unreachable) -- unrealized PnL
+ * (current price on both legs) was never affected by this either way.
  *
  * KNOWN LIMITATION 3 -- multi-token-leg transactions: if a single
  * transaction nets out more than one non-quote mint for the wallet (rare --
@@ -62,15 +61,18 @@ const TRADEABLE_TX_TYPES = new Set(["SWAP", "CREATE"]);
 export function mapHeliusSwapsToTrades(
   wallet: string,
   transactions: HeliusEnhancedTransaction[],
-  solUsdPrice: number,
+  currentSolUsdPrice: number,
+  historicalPrices: PricePoint[] = [],
 ): Trade[] {
   const trades: Trade[] = [];
-  console.error(`[mapTrades] Processing ${transactions.length} txs with SOL price=$${solUsdPrice}`);
+  console.error(`[mapTrades] Processing ${transactions.length} txs, current SOL price=$${currentSolUsdPrice}, historical series has ${historicalPrices.length} points`);
 
   for (const tx of transactions) {
     if (tx.transactionError) continue;
     if (!tx.signature || !Number.isFinite(tx.timestamp)) continue;
     if (!TRADEABLE_TX_TYPES.has(tx.type)) continue;
+
+    const solUsdPrice = nearestSolPrice(historicalPrices, tx.timestamp * 1000) ?? currentSolUsdPrice;
 
     let netSolLamports = 0;
     for (const acc of tx.accountData ?? []) {

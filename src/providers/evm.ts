@@ -225,10 +225,17 @@ export class EvmProvider implements ChainProvider, TradesProvider, DailyRealized
           symbol: p.symbol,
           tokenAddress: p.tokenAddress,
           quantityBought: round2(quantityBought),
-          costBasisUsd: round2(costBasisUsd),  // Calculate from buys, not from p.costBasis (which is 0 for liquidated positions)
+          costBasisUsd: round2(costBasisUsd),  // Total spent buying, for display -- not the same thing as p.costBasis.costBasisUsd (which is *remaining* cost basis of what's still held, correctly ~0 once fully sold)
           quantitySold: round2(quantitySold),
           proceedsUsd: round2(proceedsUsd),
-          realizedPnlUsd: round2(proceedsUsd - costBasisUsd),  // Recalculate PnL: proceeds - cost
+          // Use the engine's own realizedPnlUsd (weighted-average cost basis,
+          // tracked incrementally per sell -- see pnl-engine/costBasis.ts),
+          // not proceeds-minus-total-spent: that formula silently treats any
+          // still-held or transferred-away (not sold) quantity as a total
+          // loss, since its cost never appears in `proceedsUsd`. A token
+          // that's only partially sold showed a phantom loss for exactly
+          // this reason until this fix.
+          realizedPnlUsd: round2(p.costBasis.realizedPnlUsd),
           quantityHeld: round2(p.costBasis.quantityHeld),
           holdingDurationMs,
         };

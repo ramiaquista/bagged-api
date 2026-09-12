@@ -4,6 +4,7 @@ import type { Trade } from "../pnl-engine/types.js";
 import type { Chain } from "../schemas/chain.js";
 import type { WalletPnl } from "../schemas/pnl.js";
 import type { Position } from "../schemas/position.js";
+import { fetchHistoricalSolPriceSeries } from "./solana/binanceClient.js";
 import { fetchAssetMetadata, fetchRecentSwaps } from "./solana/heliusClient.js";
 import { fetchUsdPrices } from "./solana/jupiterClient.js";
 import { mapHeliusSwapsToTrades, WSOL_MINT } from "./solana/mapTrades.js";
@@ -185,10 +186,19 @@ export class SolanaProvider implements ChainProvider, DailyRealizedPnlProvider, 
         symbol,
         tokenAddress: mint,
         quantityBought: round(quantityBought, 6),
-        costBasisUsd: round(costBasisUsd, 2),
+        costBasisUsd: round(costBasisUsd, 2), // Total spent buying, for display -- not acc.costBasisUsd (remaining cost basis of what's still held)
         quantitySold: round(quantitySold, 6),
         proceedsUsd: round(proceedsUsd, 2),
-        realizedPnlUsd: round(proceedsUsd - costBasisUsd, 2),
+        // Use the engine's own realizedPnlUsd (weighted-average cost basis,
+        // see pnl-engine/costBasis.ts), not proceeds-minus-total-spent --
+        // that formula silently books any still-held or transferred-away
+        // (not sold) quantity as a total loss, since its cost never shows
+        // up in `proceedsUsd`. Confirmed against a real wallet: a token
+        // bought in two batches where only the first was sold (the second,
+        // small leftover was later moved out via a plain transfer, not a
+        // sale) showed as a loss for the whole token instead of the real
+        // profit on the batch that was actually sold.
+        realizedPnlUsd: round(acc.realizedPnlUsd, 2),
         quantityHeld: round(acc.quantityHeld, 6),
         holdingDurationMs,
       };
@@ -305,7 +315,17 @@ export class SolanaProvider implements ChainProvider, DailyRealizedPnlProvider, 
       solUsdPrice = 1; // Very low fallback to make inaccuracy obvious
     }
 
-    const rawTrades = mapHeliusSwapsToTrades(address, swaps, solUsdPrice);
+    // Price each fill at the SOL/USD rate when it actually happened, not
+    // today's rate -- one request covering the whole observed window
+    // (Binance SOLUSDT klines), rather than a per-trade call.
+    const timestampsMs = swaps.map((s) => s.timestamp * 1000).filter(Number.isFinite);
+    const BUFFER_MS = 5 * 60 * 1000;
+    const historicalPrices = timestampsMs.length > 0
+      ? await fetchHistoricalSolPriceSeries(Math.min(...timestampsMs) - BUFFER_MS, Math.max(...timestampsMs) + BUFFER_MS)
+      : [];
+    console.error(`[Solana] Historical SOL price series: ${historicalPrices.length} points`);
+
+    const rawTrades = mapHeliusSwapsToTrades(address, swaps, solUsdPrice, historicalPrices);
 
     const byMint = new Map<string, Trade[]>();
     for (const trade of rawTrades) {
